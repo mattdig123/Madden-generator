@@ -34,6 +34,11 @@ describe("toProgress", () => {
     expect(isPicked(getPick(p, "A", 2))).toBe(false);
     expect(getPick(p, "B", 2).note).toBe("Allen");
   });
+  it("counts a pick marked without a name", () => {
+    const p = toProgress(draft("d", "live"), [{ draft_id: "d", player: "A", round: 1, player_taken: "" }]);
+    expect(isPicked(getPick(p, "A", 1))).toBe(true);
+    expect(getPick(p, "A", 1).note).toBeUndefined();
+  });
   it("feeds the remaining-slots tally", () => {
     const picks = Array.from({ length: 31 }, (_, i) => DEFAULT_ROSTER.flatMap(r => Array(r.count).fill(r))[i]);
     const left = remainingSlots(picks, "A", toProgress(draft("d", "live"), rows), DEFAULT_ROSTER);

@@ -382,6 +382,10 @@ td .pos { animation: rise 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; animat
 }
 
 /* live board */
+.chip-btn { display: block; width: 100%; padding: 0; border: 0; background: none; border-radius: 9px; transition: filter 0.15s; }
+.chip-btn:hover:not(:disabled) { background: none; filter: brightness(1.12); }
+.chip-btn:focus-visible { outline-offset: 1px; }
+.chip-btn.static { cursor: default; }
 label.check { display: flex; align-items: center; gap: 8px; margin: 12px 0 0; font-weight: 500; font-size: 14px; cursor: pointer; }
 label.check input { width: 16px; height: 16px; accent-color: #22c55e; }
 .live-cell { display: flex; flex-direction: column; gap: 4px; min-width: 112px; }

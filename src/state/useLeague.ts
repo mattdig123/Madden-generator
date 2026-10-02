@@ -102,11 +102,14 @@ export function useLeague(api: Api) {
     }
   }, [refresh]);
 
-  const optimisticPick = useCallback((draftId: string, player: string, round: number, text: string) => {
+  /** Shows an edit straight away. `text` null means "marked made, no name"; "" removes the pick. */
+  const optimisticPick = useCallback((draftId: string, player: string, round: number, text: string | null) => {
     seq.current++; // discard any refresh already in flight; it predates this edit
-    const clean = text.trim();
     setPicks(prev => {
-      const rest = prev.filter(p => !(p.draft_id === draftId && p.player === player && p.round === round));
+      const mine = (p: PickRow) => p.draft_id === draftId && p.player === player && p.round === round;
+      const rest = prev.filter(p => !mine(p));
+      if (text === null) return [...rest, prev.find(mine) ?? { draft_id: draftId, player, round, player_taken: "" }];
+      const clean = text.trim();
       return clean ? [...rest, { draft_id: draftId, player, round, player_taken: clean }] : rest;
     });
   }, []);
@@ -165,6 +168,11 @@ export function useLeague(api: Api) {
     }, true),
     setRound: (draftId: string, round: number) => act(() => call("set_round", { p_draft: draftId, p_round: round }), true),
     setAutoAdvance: (draftId: string, on: boolean) => act(() => call("set_auto_advance", { p_draft: draftId, p_on: on }), true),
+    /** Marks a pick as made without a name (a name already there is kept), or takes the mark back. */
+    markPick: (draftId: string, player: string, round: number, made: boolean) => {
+      if (made) optimisticPick(draftId, player, round, null); else optimisticPick(draftId, player, round, "");
+      return act(() => call("mark_pick", { p_draft: draftId, p_player: player, p_round: round, p_made: made }), true);
+    },
     setPick: (draftId: string, player: string, round: number, text: string) => {
       optimisticPick(draftId, player, round, text);
       return act(() => call("set_pick", { p_draft: draftId, p_player: player, p_round: round, p_text: text }), true);

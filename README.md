@@ -4,7 +4,7 @@ A shared website for a Madden league's draft, like a small fantasy-football site
 
 - **Players**: add everyone from one screen with their name and an NFL team (logos included). Nobody has to join.
 - **Draft**: generate a randomized position order for every player (for example "QB no later than round 10"), preview and re-roll it, then start the draft.
-- **Live board**: anyone with the league link can enter picks, from one screen or many phones, and everyone watching sees them update in real time. The round advances by itself when every player has a pick.
+- **Live board**: anyone with the league link can mark picks, from one screen or many phones, and everyone watching sees them update in real time. Tap a position to mark it picked, or type who was taken; names are optional. The round advances by itself when every player has a pick.
 - **History**: finished drafts stay on the site for the whole league.
 - **Access**: no accounts. Anyone with the league link can make changes; everyone else can watch.
 

@@ -6,6 +6,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
 import migration1 from "../../supabase/migrations/0001_league.sql?raw";
 import migration2 from "../../supabase/migrations/0002_shared_key.sql?raw";
+import migration3 from "../../supabase/migrations/0003_optional_names.sql?raw";
 import type { Api, DraftRow, LeagueData, LeagueRow, MemberRow, PickRow } from "./types";
 
 export const DEMO_KEY = "demo-league-key";
@@ -30,6 +31,7 @@ export async function createDemoApi(): Promise<Api> {
     await db.exec("create role anon nologin; create role authenticated nologin; create publication supabase_realtime;");
     await db.exec(migration1);
     await db.exec(migration2);
+    await db.exec(migration3);
     await db.query("select bootstrap_league($1, $2)", ["Demo League", DEMO_KEY]);
   }
 

@@ -31,8 +31,10 @@ export interface DraftConfig {
 export type Picks = RosterEntry[];
 
 export interface PickNote {
-  /** The player taken. A pick counts as made once this has text. */
+  /** The player taken, if anyone typed it in. */
   note?: string;
+  /** Marked as made. A pick counts once it is marked or has a name; the name itself is optional. */
+  done?: boolean;
 }
 
 /** Live-board progress. Keyed by `${playerName}|${roundIndex}`. */

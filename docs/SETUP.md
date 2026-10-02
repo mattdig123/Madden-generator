@@ -10,12 +10,13 @@ Setup takes about 15 minutes and you only do it once.
 
 ## 2. Create the tables and functions
 
-In the project, open **SQL Editor**, click **New query**, paste a file, and click **Run**. Do these two, in order, each in its own query:
+In the project, open **SQL Editor**, click **New query**, paste a file, and click **Run**. Do these three, in order, each in its own query:
 
 1. [`supabase/migrations/0001_league.sql`](../supabase/migrations/0001_league.sql)
 2. [`supabase/migrations/0002_shared_key.sql`](../supabase/migrations/0002_shared_key.sql)
+3. [`supabase/migrations/0003_optional_names.sql`](../supabase/migrations/0003_optional_names.sql)
 
-Each should finish with "Success". (If you set the league up before the shared-key change, you only need to run 0002; it keeps your players, drafts and picks.)
+Each should finish with "Success". (If you set the league up earlier, run only the files you have not run yet; each one keeps your players, drafts and picks.)
 
 ## 3. Create your league
 
@@ -54,7 +55,7 @@ Any static host works. Netlify, Cloudflare Pages and Vercel all have free plans 
 2. On the **Players** tab, add everyone from one screen: type a name, choose their team, press Enter, repeat. Nobody has to join on their own.
 3. On the **Setup** tab, set the rules if you want (for example "QB by round 10") and click **Create draft preview**. Look over the positions on the **Draft** tab, and re-roll everyone or one person until you are happy.
 4. Click **Start draft**. Positions lock and the **Live board** opens for everyone.
-5. Type each pick under the player's position and press Enter. The cursor moves to the next player. When every player has a pick for the round, the board moves to the next round by itself.
+5. Mark each pick as it happens: tap the player's position to mark it picked, or type who they took and press Enter (the cursor moves to the next player). Either one counts, and names are completely optional. When every player has a pick for the round, the board moves to the next round by itself. If you never want to type names, untick **Show player-name boxes** on the Live board.
 6. Anyone with the link can use the board at the same time, for example each person on their own phone. Anyone without the link can watch live by using the plain site address.
 7. When every cell is filled the draft completes by itself and is kept in **History**. You can also end one early from the Setup tab.
 

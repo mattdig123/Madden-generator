@@ -14,6 +14,7 @@ export function pickCurrent(drafts: DraftRow[]): DraftRow | undefined {
 /** Turns database rows into the Progress shape the board and tally helpers already understand. */
 export function toProgress(draft: DraftRow | undefined, picks: PickRow[]): Progress {
   const out: Progress = { currentRound: draft?.current_round ?? 1, autoAdvance: draft?.auto_advance, picks: {} };
-  for (const p of picks) out.picks[pickKey(p.player, p.round)] = { note: p.player_taken };
+  // every stored row is a made pick; its name may be empty
+  for (const p of picks) out.picks[pickKey(p.player, p.round)] = { note: p.player_taken || undefined, done: true };
   return out;
 }

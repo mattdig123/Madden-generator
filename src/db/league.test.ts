@@ -4,7 +4,7 @@ import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
 import { beforeEach, describe, expect, it } from "vitest";
 
 const read = (name: string) => readFileSync(new URL(`../../supabase/migrations/${name}`, import.meta.url), "utf8");
-const MIGRATIONS = [read("0001_league.sql"), read("0002_shared_key.sql")];
+const MIGRATIONS = [read("0001_league.sql"), read("0002_shared_key.sql"), read("0003_optional_names.sql")];
 const KEY = "a-long-shared-league-key";
 // 3 rounds keeps the draft short: QB, RB, RB.
 const ROSTER = JSON.stringify([
@@ -110,7 +110,7 @@ describe("permissions", () => {
        order by 1`,
     )).rows.map(r => r.fn);
     expect(rows).toEqual([
-      "add_player", "check_key", "create_preview", "delete_draft", "finish_draft", "remove_player",
+      "add_player", "check_key", "create_preview", "delete_draft", "finish_draft", "mark_pick", "remove_player",
       "reroll", "rotate_key", "save_settings", "set_auto_advance", "set_pick", "set_round", "start_draft", "update_player",
     ]);
   });
@@ -138,6 +138,7 @@ describe("permissions", () => {
       ["reroll", "select reroll($1, $2::uuid, 's', null)", "draft"],
       ["start_draft", "select start_draft($1, $2::uuid)", "draft"],
       ["set_pick", "select set_pick($1, $2::uuid, 'Matt', 1, 'x')", "draft"],
+      ["mark_pick", "select mark_pick($1, $2::uuid, 'Matt', 1, true)", "draft"],
       ["set_round", "select set_round($1, $2::uuid, 2)", "draft"],
       ["set_auto_advance", "select set_auto_advance($1, $2::uuid, false)", "draft"],
       ["finish_draft", "select finish_draft($1, $2::uuid)", "draft"],
@@ -352,6 +353,89 @@ describe("entering picks (anyone with the key, any player)", () => {
   });
 });
 
+describe("marking picks without a name", () => {
+  const mark = (draft: string, player: string, round: number, made = true, key = KEY) =>
+    asAnon("select mark_pick($1, $2::uuid, $3, $4::int, $5::boolean)", [key, draft, player, round, made]);
+  const taken = async (draft: string, player: string, round: number) =>
+    (await db.query<{ player_taken: string }>("select player_taken from picks where draft_id = $1 and player = $2 and round = $3", [draft, player, round])).rows[0]?.player_taken;
+
+  it("marks a pick as made with no name, and takes it back", async () => {
+    await seed(2);
+    const id = await startDraft();
+    await mark(id, "Matt", 1);
+    expect(await taken(id, "Matt", 1)).toBe("");
+    expect(await pickCount(id)).toBe(1);
+    await mark(id, "Matt", 1, false);
+    expect(await taken(id, "Matt", 1)).toBeUndefined();
+    expect(await pickCount(id)).toBe(0);
+  });
+
+  it("advances the round when everyone has marked or named a pick, in any mix", async () => {
+    await seed(3);
+    const id = await startDraft();
+    await mark(id, "Matt", 1);
+    await pick(id, "Dave", 1, "Allen");
+    expect((await draftRow(id)).current_round).toBe(1);
+    await mark(id, "Chris", 1);
+    expect((await draftRow(id)).current_round).toBe(2);
+  });
+
+  it("never overwrites a name when marking, and a name can be added to a marked pick", async () => {
+    await seed(2);
+    const id = await startDraft();
+    await pick(id, "Matt", 1, "Mahomes");
+    await mark(id, "Matt", 1);
+    expect(await taken(id, "Matt", 1)).toBe("Mahomes");
+    await mark(id, "Dave", 1);
+    await pick(id, "Dave", 1, "Allen");
+    expect(await taken(id, "Dave", 1)).toBe("Allen");
+  });
+
+  it("clearing a name's text removes the pick, which is different from un-marking only when blank", async () => {
+    await seed(2);
+    const id = await startDraft();
+    await mark(id, "Matt", 1);
+    await pick(id, "Matt", 1, "");
+    expect(await taken(id, "Matt", 1)).toBeUndefined();
+  });
+
+  it("does not advance twice or on re-marking, and completes a draft filled only by marks", async () => {
+    await seed(2);
+    const id = await startDraft();
+    await mark(id, "Matt", 1);
+    await mark(id, "Matt", 1);
+    await mark(id, "Dave", 1);
+    expect((await draftRow(id)).current_round).toBe(2);
+    await mark(id, "Dave", 1); // already marked: no second advance
+    expect((await draftRow(id)).current_round).toBe(2);
+    for (const round of [2, 3]) {
+      await mark(id, "Matt", round);
+      await mark(id, "Dave", round);
+    }
+    expect((await draftRow(id)).status).toBe("complete");
+  });
+
+  it("respects the auto-advance switch and blocks previews, bad players and bad rounds", async () => {
+    await seed(2);
+    const preview = await createPreview();
+    await expect(mark(preview, "Matt", 1)).rejects.toThrow(/not started/);
+    await asAnon("select start_draft($1, $2::uuid)", [KEY, preview]);
+    await expect(mark(preview, "Ghost", 1)).rejects.toThrow(/No such player/);
+    await expect(mark(preview, "Matt", 9)).rejects.toThrow(/no round/);
+    await asAnon("select set_auto_advance($1, $2::uuid, false)", [KEY, preview]);
+    await mark(preview, "Matt", 1);
+    await mark(preview, "Dave", 1);
+    expect((await draftRow(preview)).current_round).toBe(1);
+  });
+
+  it("still rejects names longer than 80 characters", async () => {
+    await seed(2);
+    const id = await startDraft();
+    await pick(id, "Matt", 1, "x".repeat(200));
+    expect((await taken(id, "Matt", 1)).length).toBe(80);
+  });
+});
+
 describe("rotating the key", () => {
   it("locks out the old key and accepts the new one", async () => {
     const NEW = "brand-new-league-key-1";
@@ -375,6 +459,7 @@ describe("upgrading a league that used the old commissioner model", () => {
     await old.query("select bootstrap_league('Old League', 'old-commissioner-pass', 'OLDCODE')");
     await old.query("select join_league('OLDCODE', 'Matt', 'kc')");
     await old.exec(MIGRATIONS[1]);
+    await old.exec(MIGRATIONS[2]);
     expect((await old.query<{ ok: boolean }>("select check_key('OLDCODE') as ok")).rows[0].ok).toBe(true);
     expect((await old.query("select name from members")).rows).toEqual([{ name: "Matt" }]);
     expect((await old.query("select name from league")).rows).toEqual([{ name: "Old League" }]);

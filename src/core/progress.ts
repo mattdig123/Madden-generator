@@ -9,8 +9,8 @@ export function getPick(progress: Progress, name: string, round: number): PickNo
   return progress.picks[pickKey(name, round)] ?? {};
 }
 
-/** A pick is made once a player name has been entered. */
-export const isPicked = (pick: PickNote): boolean => (pick.note ?? "").trim() !== "";
+/** A pick is made once it is marked as made or a player name has been entered. */
+export const isPicked = (pick: PickNote): boolean => !!pick.done || (pick.note ?? "").trim() !== "";
 
 /** Positions a player still has to fill, in roster order. */
 export function remainingSlots(

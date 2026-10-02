@@ -16,3 +16,8 @@ export const saveKey = (key: string | null) => write(KEY_KEY, key);
 
 export const loadMe = (): string | null => read(ME_KEY);
 export const saveMe = (playerId: string | null) => write(ME_KEY, playerId);
+
+const NAMES_KEY = "madden-league:show-names";
+/** Whether to show the "player taken" boxes on the live board (default yes). Per device. */
+export const loadShowNames = (): boolean => read(NAMES_KEY) !== "0";
+export const saveShowNames = (on: boolean) => write(NAMES_KEY, on ? "1" : "0");

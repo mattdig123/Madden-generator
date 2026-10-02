@@ -1,8 +1,9 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { PlayerDraft } from "../core/generate";
 import { getPick, isPicked, remainingSlots } from "../core/progress";
 import { totalRounds } from "../core/rules";
 import type { Progress } from "../core/types";
+import { loadShowNames, saveShowNames } from "../state/local";
 import type { League } from "../state/useLeague";
 import { DraftGrid, Legend, PosChip } from "./DraftGrid";
 import { PickInput } from "./PickInput";
@@ -20,6 +21,7 @@ export function LiveBoard({ league, players, progress, goTo }: Props) {
   const currentRound = draft?.current_round;
   const boardRef = useRef<HTMLDivElement>(null);
   const firstRender = useRef(true);
+  const [showNames, setShowNames] = useState(loadShowNames);
 
   // Keep the round on the clock in view as it moves, including when someone else's pick advances it.
   useEffect(() => {
@@ -75,12 +77,23 @@ export function LiveBoard({ league, players, progress, goTo }: Props) {
         {canEdit && live && (
           <label className="check">
             <input type="checkbox" checked={draft.auto_advance} onChange={e => void league.setAutoAdvance(draft.id, e.target.checked)} />
-            Auto-advance when everyone has entered a pick
+            Auto-advance when every player has a pick
+          </label>
+        )}
+        {canEdit && (
+          <label className="check">
+            <input
+              type="checkbox" checked={showNames}
+              onChange={e => { setShowNames(e.target.checked); saveShowNames(e.target.checked); }}
+            />
+            Show player-name boxes (optional)
           </label>
         )}
         <div className="hint">
           {canEdit
-            ? "Type each pick under the player's position and press Enter. Everyone watching sees it right away."
+            ? showNames
+              ? "Tap a position to mark it picked, or type who was taken and press Enter. Either one counts, and everyone watching sees it right away."
+              : "Tap a position when it has been picked. Everyone watching sees it right away."
             : live
               ? "You're watching this draft live. Picks appear as people make them."
               : "This draft is over. Browse the picks below."}
@@ -99,18 +112,29 @@ export function LiveBoard({ league, players, progress, goTo }: Props) {
             const picked = isPicked(pick);
             return (
               <div className={`live-cell${picked ? " picked" : ""}`}>
-                <PosChip entry={entry} dim={picked} />
                 {canEdit ? (
+                  <button
+                    className="chip-btn"
+                    aria-pressed={picked}
+                    aria-label={`${p.name} round ${round} ${entry.label}${picked ? ", picked" : ""}`}
+                    title={pick.note ? "Clear the name below to undo this pick" : picked ? "Tap to undo" : "Tap to mark as picked"}
+                    onClick={() => { if (!pick.note) void league.markPick(draft.id, p.name, round, !picked); }}
+                  >
+                    <PosChip entry={entry} dim={picked} />
+                  </button>
+                ) : (
+                  <PosChip entry={entry} dim={picked} />
+                )}
+                {canEdit && showNames && (
                   <PickInput
                     value={pick.note ?? ""}
-                    picked={picked}
+                    picked={!!pick.note}
                     label={`${p.name} round ${round} ${entry.label}: player taken`}
                     onCommit={text => void league.setPick(draft.id, p.name, round, text)}
                   />
-                ) : (
-                  <div className={`note readonly${picked ? " picked" : ""}`} title={pick.note}>
-                    {picked ? pick.note : "—"}
-                  </div>
+                )}
+                {!(canEdit && showNames) && pick.note && (
+                  <div className="note readonly picked" title={pick.note}>{pick.note}</div>
                 )}
               </div>
             );
