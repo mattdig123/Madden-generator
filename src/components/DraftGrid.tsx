@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import type { PlayerDraft } from "../core/generate";
 import { GROUP_NAMES } from "../core/roster";
 import { GROUPS, type RosterEntry } from "../core/types";
@@ -8,6 +8,8 @@ interface Props {
   /** 1-based round to highlight. */
   highlightRound?: number;
   onReroll?: (name: string) => void;
+  /** Changing a player's version replays the entrance animation for that column. */
+  version?: (name: string) => string;
   /** Replaces the default position chip. */
   renderCell?: (player: PlayerDraft, round: number, entry: RosterEntry) => ReactNode;
 }
@@ -29,7 +31,7 @@ export function Legend() {
   );
 }
 
-export function DraftGrid({ players, highlightRound, onReroll, renderCell }: Props) {
+export function DraftGrid({ players, highlightRound, onReroll, version, renderCell }: Props) {
   const rounds = players[0]?.picks.length ?? 0;
   return (
     <div className="table-wrap">
@@ -52,10 +54,12 @@ export function DraftGrid({ players, highlightRound, onReroll, renderCell }: Pro
         </thead>
         <tbody>
           {Array.from({ length: rounds }, (_, i) => (
-            <tr key={i} className={highlightRound === i + 1 ? "current" : undefined}>
+            <tr key={i} className={[highlightRound === i + 1 && "current", (i + 1) % 5 === 0 && "five"].filter(Boolean).join(" ") || undefined}>
               <td className="round">{i + 1}</td>
               {players.map(p => (
-                <td key={p.name}>{renderCell ? renderCell(p, i + 1, p.picks[i]) : <PosChip entry={p.picks[i]} />}</td>
+                <td key={version ? version(p.name) : p.name} style={{ "--i": i } as CSSProperties}>
+                  {renderCell ? renderCell(p, i + 1, p.picks[i]) : <PosChip entry={p.picks[i]} />}
+                </td>
               ))}
             </tr>
           ))}

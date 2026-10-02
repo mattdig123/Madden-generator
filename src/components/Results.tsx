@@ -67,7 +67,12 @@ export function Results({ drafts, players, onNeedSetup }: Props) {
         {msg && <span className={`msg ${msg.kind} inline-msg`}>{msg.text}</span>}
       </div>
       <Legend />
-      <DraftGrid players={players} onReroll={drafts.rerollPlayer} highlightRound={working.progress.currentRound} />
+      <DraftGrid
+        players={players}
+        onReroll={drafts.rerollPlayer}
+        highlightRound={working.progress.currentRound}
+        version={name => `${config.seed}:${config.rerolls[name] ?? 0}:${name}`}
+      />
     </>
   );
 }

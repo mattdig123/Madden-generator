@@ -43,6 +43,7 @@ export function LiveBoard({ drafts, players, onNeedSetup }: Props) {
       <DraftGrid
         players={players}
         highlightRound={progress.currentRound}
+        version={name => `${config.seed}:${config.rerolls[name] ?? 0}:${name}`}
         renderCell={(p, round, entry) => {
           const key = pickKey(p.name, round);
           const pick = getPick(progress, p.name, round);
