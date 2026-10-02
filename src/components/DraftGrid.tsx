@@ -8,6 +8,8 @@ interface Props {
   players: PlayerDraft[];
   /** 1-based round to highlight. */
   highlightRound?: number;
+  /** Name of the signed-in member, so their column can be picked out. */
+  mine?: string;
   onReroll?: (name: string) => void;
   /** Changing a player's version replays the entrance animation for that column. */
   version?: (name: string) => string;
@@ -32,7 +34,7 @@ export function Legend() {
   );
 }
 
-export function DraftGrid({ players, highlightRound, onReroll, version, renderCell }: Props) {
+export function DraftGrid({ players, highlightRound, mine, onReroll, version, renderCell }: Props) {
   const rounds = players[0]?.picks.length ?? 0;
   return (
     <div className="table-wrap">
@@ -41,7 +43,7 @@ export function DraftGrid({ players, highlightRound, onReroll, version, renderCe
           <tr>
             <th className="round">Rd</th>
             {players.map(p => (
-              <th key={p.name}>
+              <th key={p.name} className={mine === p.name ? "mine" : undefined}>
                 <div className="th-player">
                   <TeamLogo team={p.team} size={40} />
                   <span className="th-name">{p.name}</span>
@@ -57,7 +59,7 @@ export function DraftGrid({ players, highlightRound, onReroll, version, renderCe
             <tr key={i} className={[highlightRound === i + 1 && "current", (i + 1) % 5 === 0 && "five"].filter(Boolean).join(" ") || undefined}>
               <td className="round">{i + 1}</td>
               {players.map(p => (
-                <td key={version ? version(p.name) : p.name} style={{ "--i": i } as CSSProperties}>
+                <td key={version ? version(p.name) : p.name} className={mine === p.name ? "mine" : undefined} style={{ "--i": i } as CSSProperties}>
                   {renderCell ? renderCell(p, i + 1, p.picks[i]) : <PosChip entry={p.picks[i]} />}
                 </td>
               ))}

@@ -1,60 +1,31 @@
-import { useRef, useState } from "react";
 import { TEAM_BY_ID } from "../core/teams";
-import type { Drafts } from "../state/useDrafts";
+import type { League } from "../state/useLeague";
 import { TeamLogo } from "./TeamLogo";
 
 interface Props {
-  drafts: Drafts;
+  league: League;
   onOpen: () => void;
 }
 
-export function HistoryList({ drafts, onOpen }: Props) {
-  const { saved, working } = drafts.store;
-  const fileRef = useRef<HTMLInputElement>(null);
-  const [msg, setMsg] = useState<{ text: string; kind: "ok" | "error" } | null>(null);
+export function HistoryList({ league, onOpen }: Props) {
+  const shown = league.drafts.filter(d => d.status !== "preview");
 
-  const exportAll = () => {
-    const blob = new Blob([JSON.stringify({ v: 1, saved }, null, 2)], { type: "application/json" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "madden-drafts.json";
-    a.click();
-    URL.revokeObjectURL(a.href);
-  };
-
-  const importFile = async (file: File) => {
-    const res = drafts.importDrafts(await file.text());
-    setMsg(res.error ? { text: res.error, kind: "error" } : { text: `Imported ${res.count} draft(s).`, kind: "ok" });
-  };
+  if (shown.length === 0) {
+    return <section className="panel"><p>No drafts yet. Finished drafts will be kept here for the whole league to look back on.</p></section>;
+  }
 
   return (
     <>
-      <section className="panel">
-        <div className="row first">
-          <button onClick={exportAll} disabled={saved.length === 0}>Export all</button>
-          <button onClick={() => fileRef.current?.click()}>Import</button>
-          <input
-            ref={fileRef} type="file" accept="application/json,.json" hidden
-            onChange={e => {
-              const f = e.target.files?.[0];
-              if (f) void importFile(f);
-              e.target.value = "";
-            }}
-          />
-          {msg && <span className={`msg ${msg.kind} inline-msg`}>{msg.text}</span>}
-        </div>
-        <div className="hint">
-          Drafts are saved in this browser only. Export a file to back them up or move them to another device.
-        </div>
-      </section>
-
-      {saved.length === 0 && <section className="panel"><p>Nothing saved yet. Use "Save to history" on the Results tab.</p></section>}
-      {saved.map(d => (
+      {shown.map(d => (
         <section className="panel history-item" key={d.id}>
           <div>
             <strong>{d.title}</strong>
-            {working?.id === d.id && <span className="badge">Open</span>}
-            <div className="hint">{new Date(d.createdAt).toLocaleString()}</div>
+            {d.status === "live" && <span className="live-pill ml"><span className="live-dot" />Live</span>}
+            {d.status === "complete" && <span className="badge">Complete</span>}
+            {league.current?.id === d.id && league.viewedId === null && <span className="badge info">Current</span>}
+            <div className="hint">
+              {new Date(d.created_at).toLocaleDateString(undefined, { dateStyle: "medium" })} · {d.config.names.length} players
+            </div>
             <div className="history-players">
               {d.config.names.map(n => (
                 <span key={n} className="history-player">
@@ -65,9 +36,12 @@ export function HistoryList({ drafts, onOpen }: Props) {
             </div>
           </div>
           <div className="row first">
-            <button className="primary" onClick={() => { drafts.openSaved(d.id); onOpen(); }}>Open</button>
-            <button onClick={() => drafts.duplicateSaved(d.id)}>Duplicate</button>
-            <button onClick={() => { if (confirm(`Delete "${d.title}"?`)) drafts.deleteSaved(d.id); }}>Delete</button>
+            <button className="primary" onClick={() => { league.viewDraft(d.id); onOpen(); }}>Open</button>
+            {league.isAdmin && (
+              <button onClick={() => { if (confirm(`Delete "${d.title}" and all its picks? This can't be undone.`)) void league.deleteDraft(d.id); }}>
+                Delete
+              </button>
+            )}
           </div>
         </section>
       ))}

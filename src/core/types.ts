@@ -43,10 +43,3 @@ export interface Progress {
   picks: Record<string, PickNote>;
 }
 
-export interface SavedDraft {
-  id: string;
-  title: string;
-  createdAt: number;
-  config: DraftConfig;
-  progress: Progress;
-}

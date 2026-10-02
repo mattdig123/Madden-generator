@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { generateDraft, validateConfig } from "./generate";
 import { DEFAULT_ROSTER, DEFAULT_RULES, expandSlots } from "./roster";
 import { checkRules, totalRounds, validatePicks } from "./rules";
-import { decodeConfig, encodeConfig } from "./share";
 import { asText } from "./text";
 import type { DraftConfig } from "./types";
 
@@ -103,32 +102,6 @@ describe("rule checks", () => {
   });
 });
 
-describe("share links", () => {
-  it("round-trips the default config", () => {
-    const c = base({ rerolls: { Sam: 2 } });
-    expect(decodeConfig(encodeConfig(c))).toEqual(c);
-  });
-  it("round-trips custom rules, roster and unicode names", () => {
-    const c = base({
-      names: ["José", "Zoë", "李"],
-      rules: [{ id: "r", label: "K", minRound: 25 }],
-      roster: [{ label: "QB", count: 1, group: "qb" }, { label: "K", count: 30, group: "k" }],
-    });
-    const back = decodeConfig(encodeConfig(c));
-    expect(back?.names).toEqual(c.names);
-    expect(back?.rules).toEqual(c.rules);
-    expect(back?.roster).toEqual(c.roster);
-  });
-  it("regenerates identical results from a link", () => {
-    const c = base();
-    expect(generateDraft(decodeConfig(encodeConfig(c))!)).toEqual(generateDraft(c));
-  });
-  it("rejects garbage", () => {
-    expect(decodeConfig("#/d/not-valid")).toBeNull();
-    expect(decodeConfig("#/other")).toBeNull();
-  });
-});
-
 describe("asText", () => {
   it("prints a header and one row per round", () => {
     expect(asText(generateDraft(base())).split("\n")).toHaveLength(32);
@@ -147,51 +120,6 @@ describe("progress", () => {
   });
 });
 
-describe("auto-advance", () => {
-  it("moves to the next round once every player has entered a name", async () => {
-    const { applyPick, emptyProgress } = await import("./progress");
-    const names = ["A", "B", "C"];
-    let p = emptyProgress();
-    p = applyPick(p, names, 31, "A", 1, "Mahomes");
-    p = applyPick(p, names, 31, "B", 1, "Allen");
-    expect(p.currentRound).toBe(1);
-    p = applyPick(p, names, 31, "C", 1, "Burrow");
-    expect(p.currentRound).toBe(2);
-  });
-  it("does not count blank or whitespace-only entries", async () => {
-    const { applyPick, emptyProgress } = await import("./progress");
-    const names = ["A", "B"];
-    let p = applyPick(emptyProgress(), names, 31, "A", 1, "Lamar");
-    p = applyPick(p, names, 31, "B", 1, "   ");
-    expect(p.currentRound).toBe(1);
-  });
-  it("ignores corrections, clearing, other rounds, the last round and the off switch", async () => {
-    const { applyPick, emptyProgress } = await import("./progress");
-    const names = ["A", "B"];
-    // finishing a round that is not on the clock does not move the pointer
-    let p = applyPick(emptyProgress(), names, 31, "A", 3, "x");
-    p = applyPick(p, names, 31, "B", 3, "y");
-    expect(p.currentRound).toBe(1);
-    // fixing a name in a round that is already complete does not advance
-    let q = applyPick(applyPick(emptyProgress(), names, 31, "A", 1, "x"), names, 31, "B", 1, "y");
-    expect(q.currentRound).toBe(2);
-    q = { ...q, currentRound: 1 };
-    q = applyPick(q, names, 31, "A", 1, "x2");
-    expect(q.currentRound).toBe(1);
-    // clearing then re-entering counts as a new pick
-    q = applyPick(q, names, 31, "A", 1, "");
-    q = applyPick(q, names, 31, "A", 1, "x3");
-    expect(q.currentRound).toBe(2);
-    // last round stays put
-    const last = { ...emptyProgress(), currentRound: 31 };
-    const done = applyPick(applyPick(last, names, 31, "A", 31, "a"), names, 31, "B", 31, "b");
-    expect(done.currentRound).toBe(31);
-    // switched off
-    const off = { ...emptyProgress(), autoAdvance: false };
-    const stay = applyPick(applyPick(off, names, 31, "A", 1, "a"), names, 31, "B", 1, "b");
-    expect(stay.currentRound).toBe(1);
-  });
-});
 
 describe("teams", () => {
   it("has 32 teams with unique ids and abbreviations", async () => {
@@ -229,19 +157,5 @@ describe("teams", () => {
     expect(players.map(p => p.team?.abbr)).toEqual(["KC", "BUF", "SF", "DAL"]);
   });
 
-  it("round-trips teams through a share link, and decodes links without them", () => {
-    const teams = { Matt: "kc", Dave: "buf", Chris: "sf", Sam: "wsh" };
-    expect(decodeConfig(encodeConfig(withTeams(teams)))?.teams).toEqual(teams);
-    expect(decodeConfig(encodeConfig(base()))?.teams).toBeUndefined();
-  });
 
-  it("drops team data from a link when an id is invalid", () => {
-    const hash = encodeConfig(withTeams({ Matt: "kc", Dave: "buf", Chris: "sf", Sam: "dal" }));
-    const json = JSON.parse(atob(hash.slice(4).replace(/-/g, "+").replace(/_/g, "/")));
-    json.t[0] = "nope";
-    const bad = "#/d/" + btoa(JSON.stringify(json)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-    const decoded = decodeConfig(bad);
-    expect(decoded).not.toBeNull();
-    expect(decoded?.teams).toBeUndefined();
-  });
 });

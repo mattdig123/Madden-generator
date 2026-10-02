@@ -1,77 +1,107 @@
 import { useEffect, useRef } from "react";
 import type { PlayerDraft } from "../core/generate";
 import { getPick, isPicked, remainingSlots } from "../core/progress";
-import type { Drafts } from "../state/useDrafts";
+import { totalRounds } from "../core/rules";
+import type { Progress } from "../core/types";
+import type { League } from "../state/useLeague";
 import { DraftGrid, Legend, PosChip } from "./DraftGrid";
 import { PickInput } from "./PickInput";
 import { TeamLogo } from "./TeamLogo";
 
 interface Props {
-  drafts: Drafts;
+  league: League;
   players: PlayerDraft[];
-  onNeedSetup: () => void;
+  progress: Progress;
+  goTo: (tab: "draft" | "commissioner") => void;
 }
 
-export function LiveBoard({ drafts, players, onNeedSetup }: Props) {
-  const working = drafts.store.working;
-  const currentRound = working?.progress.currentRound;
+export function LiveBoard({ league, players, progress, goTo }: Props) {
+  const { draft, me, isAdmin } = league;
+  const currentRound = draft?.current_round;
   const boardRef = useRef<HTMLDivElement>(null);
   const firstRender = useRef(true);
 
-  // Keep the round on the clock in view as it moves (including auto-advance).
+  // Keep the round on the clock in view as it moves, including when someone else's pick advances it.
   useEffect(() => {
     if (firstRender.current) { firstRender.current = false; return; }
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const row = boardRef.current?.querySelector("tr.current");
     row?.scrollIntoView({ block: "center", behavior: reduce ? "auto" : "smooth" });
-    // If someone was typing picks, carry on in the first empty box of the new round.
+    // If you were typing picks, carry on in the first empty box of the new round.
     if (document.activeElement instanceof HTMLInputElement && boardRef.current?.contains(document.activeElement)) {
       const next = [...(row?.querySelectorAll<HTMLInputElement>("input.note") ?? [])].find(i => i.value.trim() === "");
       next?.focus({ preventScroll: true });
     }
   }, [currentRound]);
 
-  if (!working) {
+  if (!draft) {
+    return <section className="panel"><p>No draft yet.</p></section>;
+  }
+  if (draft.status === "preview") {
     return (
       <section className="panel">
-        <p>Generate a draft first.</p>
-        <button className="primary" onClick={onNeedSetup}>Go to Setup</button>
+        <p>The draft hasn't started yet. The live board opens when the commissioner starts it.</p>
+        <button onClick={() => goTo("draft")}>See the positions</button>
       </section>
     );
   }
 
-  const { progress, config } = working;
-  const rounds = players[0]?.picks.length ?? 0;
-  const goTo = (round: number) =>
-    drafts.setProgress(p => ({ ...p, currentRound: Math.min(Math.max(round, 1), rounds) }));
-  const finished = players.every(p => p.picks.every((_, i) => isPicked(getPick(progress, p.name, i + 1))));
+  const rounds = totalRounds(draft.config.roster);
+  const live = draft.status === "live";
+  const finished = draft.status === "complete";
+  const config = draft.config;
+
+  const canEdit = (player: string, round: number) => {
+    if (isAdmin) return true;
+    return live && !!me && me.name === player && round <= draft.current_round;
+  };
 
   return (
     <>
       <section className="panel">
         <div className="row first">
-          <button onClick={() => goTo(progress.currentRound - 1)} disabled={progress.currentRound <= 1}>Previous round</button>
-          <strong className="clock">{finished ? "Draft complete" : `Round ${progress.currentRound} of ${rounds}`}</strong>
-          <button className="primary" onClick={() => goTo(progress.currentRound + 1)} disabled={progress.currentRound >= rounds}>
-            Next round
-          </button>
+          {isAdmin && live ? (
+            <>
+              <button onClick={() => void league.setRound(draft.id, draft.current_round - 1)} disabled={draft.current_round <= 1}>
+                Previous round
+              </button>
+              <strong className="clock">Round {draft.current_round} of {rounds}</strong>
+              <button className="primary" onClick={() => void league.setRound(draft.id, draft.current_round + 1)} disabled={draft.current_round >= rounds}>
+                Next round
+              </button>
+            </>
+          ) : (
+            <>
+              {live && <span className="live-pill"><span className="live-dot" />Live</span>}
+              <strong className="clock">{finished ? "Draft complete" : `Round ${draft.current_round} of ${rounds}`}</strong>
+            </>
+          )}
         </div>
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={progress.autoAdvance !== false}
-            onChange={e => drafts.setProgress(p => ({ ...p, autoAdvance: e.target.checked ? undefined : false }))}
-          />
-          Auto-advance when everyone has entered a pick
-        </label>
-        <div className="hint">Type the player each person took under their position and press Enter. A pick counts once a name is entered.</div>
+        {isAdmin && live && (
+          <label className="check">
+            <input type="checkbox" checked={draft.auto_advance} onChange={e => void league.setAutoAdvance(draft.id, e.target.checked)} />
+            Auto-advance when everyone has entered a pick
+          </label>
+        )}
+        <div className="hint">
+          {isAdmin
+            ? "You're the commissioner, so you can enter or fix anyone's pick."
+            : me && live
+              ? "Type your pick under your position and press Enter. Everyone sees it right away."
+              : me && !live
+                ? "This draft is over, so picks are locked."
+                : live
+                  ? "You're watching this draft live. Picks appear as people make them."
+                  : "This draft is over. Browse the picks below."}
+        </div>
       </section>
 
       <Legend />
       <div ref={boardRef}>
         <DraftGrid
           players={players}
-          highlightRound={progress.currentRound}
+          mine={me?.name}
+          highlightRound={live ? draft.current_round : undefined}
           version={name => `${config.seed}:${config.rerolls[name] ?? 0}:${name}`}
           renderCell={(p, round, entry) => {
             const pick = getPick(progress, p.name, round);
@@ -79,12 +109,18 @@ export function LiveBoard({ drafts, players, onNeedSetup }: Props) {
             return (
               <div className={`live-cell${picked ? " picked" : ""}`}>
                 <PosChip entry={entry} dim={picked} />
-                <PickInput
-                  value={pick.note ?? ""}
-                  picked={picked}
-                  label={`${p.name} round ${round} ${entry.label}: player taken`}
-                  onCommit={text => drafts.setPick(p.name, round, text)}
-                />
+                {canEdit(p.name, round) ? (
+                  <PickInput
+                    value={pick.note ?? ""}
+                    picked={picked}
+                    label={`${p.name} round ${round} ${entry.label}: player taken`}
+                    onCommit={text => void (isAdmin ? league.adminSetPick(draft.id, p.name, round, text) : league.submitPick(round, text))}
+                  />
+                ) : (
+                  <div className={`note readonly${picked ? " picked" : ""}`} title={pick.note}>
+                    {picked ? pick.note : "—"}
+                  </div>
+                )}
               </div>
             );
           }}

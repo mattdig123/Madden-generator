@@ -26,32 +26,3 @@ export function remainingSlots(
   return roster.filter(r => left.has(r.label)).map(r => ({ label: r.label, left: left.get(r.label)! }));
 }
 
-/** True when every player has entered a pick for the 1-based `round`. */
-export function isRoundComplete(names: string[], progress: Progress, round: number): boolean {
-  return names.every(name => isPicked(getPick(progress, name, round)));
-}
-
-/**
- * Stores the player taken and, when that entry completes the round on the clock, moves to the
- * next round. Only a pick going from empty to filled can advance, so correcting a name, clearing
- * one, or editing another round never moves the pointer.
- */
-export function applyPick(
-  progress: Progress,
-  names: string[],
-  rounds: number,
-  name: string,
-  round: number,
-  note: string,
-): Progress {
-  const wasPicked = isPicked(getPick(progress, name, round));
-  const next: Progress = { ...progress, picks: { ...progress.picks, [pickKey(name, round)]: { note } } };
-  const auto = progress.autoAdvance !== false;
-  if (
-    auto && !wasPicked && isPicked({ note }) && round === progress.currentRound &&
-    progress.currentRound < rounds && isRoundComplete(names, next, round)
-  ) {
-    next.currentRound = round + 1;
-  }
-  return next;
-}

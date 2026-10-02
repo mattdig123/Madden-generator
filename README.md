@@ -1,17 +1,27 @@
-# Madden Draft Generator
+# Madden Draft
 
-Generates a position-per-round draft order for every player in a Madden league.
+A shared website for a Madden league's draft, like a small fantasy-football site.
+
+- **League**: members join from an invite link with their name and an NFL team (logos included).
+- **Draft**: the commissioner generates a randomized position order for every player (for example "QB no later than round 10"), previews and re-rolls it, then starts the draft.
+- **Live board**: every player enters their own picks and everyone sees them update in real time. The round advances by itself when everyone has picked.
+- **History**: finished drafts stay on the site for the whole league.
+
+## Run it
 
 ```bash
 npm install
-npm run dev        # local dev server
-npm test           # unit tests for generation, rules and share links
-npm run build      # static site in dist/ (works on GitHub Pages or any static host)
+npm run dev        # http://localhost:5173/?demo works with no setup
+npm test           # engine tests and database tests
+npm run build      # static site in dist/
 ```
 
-- **Rules**: edit on the Setup tab. The default is "QB no later than round 10".
-- **Roster**: edit on the Setup tab (defaults to the 31-slot league roster).
-- **Share link**: encodes seed, names, rules and roster, so the recipient sees the identical draft.
-- **History and Live board**: saved in this browser's localStorage only. Use Export/Import to back up or move drafts.
+To run a real league you need a free Supabase project and a static host. See **[docs/SETUP.md](docs/SETUP.md)**.
 
-Core logic is in `src/core/` (pure TypeScript, no React). State is in `src/state/`, UI in `src/components/`.
+## How it is built
+
+- `src/core/`: the draft engine (seeded shuffle, rules, 31-slot roster, NFL teams). Pure TypeScript, no React. Positions are derived from a stored seed, so every browser computes the identical grid.
+- `supabase/migrations/0001_league.sql`: the database. The public can only read; every write goes through checked functions (a member's private key for their own pick, a passcode for commissioner actions).
+- `src/state/`: loads league data, listens for live changes, and wraps the database functions. A dev-only demo backend runs the same SQL in the browser.
+- `src/components/`: the pages (League, Draft, Live board, History, Commissioner).
+- `src/db/league.test.ts`: tests the real SQL, including permissions, in an in-memory Postgres.

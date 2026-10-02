@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface Props {
   value: string;
@@ -14,9 +14,11 @@ interface Props {
  */
 export function PickInput({ value, label, picked, onCommit }: Props) {
   const [text, setText] = useState(value);
-  useEffect(() => setText(value), [value]);
+  // The latest typed text, readable even if a blur lands before React has re-rendered.
+  const latest = useRef(value);
+  useEffect(() => { latest.current = value; setText(value); }, [value]);
 
-  const commit = () => { if (text !== value) onCommit(text); };
+  const commit = () => { if (latest.current !== value) onCommit(latest.current); };
 
   return (
     <input
@@ -25,7 +27,7 @@ export function PickInput({ value, label, picked, onCommit }: Props) {
       value={text}
       aria-label={label}
       enterKeyHint="next"
-      onChange={e => setText(e.target.value)}
+      onChange={e => { latest.current = e.target.value; setText(e.target.value); }}
       onBlur={commit}
       onKeyDown={e => {
         if (e.key !== "Enter") return;
