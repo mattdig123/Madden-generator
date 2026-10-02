@@ -37,7 +37,7 @@ export function HistoryList({ league, onOpen }: Props) {
           </div>
           <div className="row first">
             <button className="primary" onClick={() => { league.viewDraft(d.id); onOpen(); }}>Open</button>
-            {league.isAdmin && (
+            {league.canEdit && (
               <button onClick={() => { if (confirm(`Delete "${d.title}" and all its picks? This can't be undone.`)) void league.deleteDraft(d.id); }}>
                 Delete
               </button>

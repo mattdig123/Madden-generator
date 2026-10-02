@@ -12,11 +12,11 @@ interface Props {
   league: League;
   players: PlayerDraft[];
   progress: Progress;
-  goTo: (tab: "draft" | "commissioner") => void;
+  goTo: (tab: "draft" | "setup") => void;
 }
 
 export function LiveBoard({ league, players, progress, goTo }: Props) {
-  const { draft, me, isAdmin } = league;
+  const { draft, me, canEdit } = league;
   const currentRound = draft?.current_round;
   const boardRef = useRef<HTMLDivElement>(null);
   const firstRender = useRef(true);
@@ -40,7 +40,7 @@ export function LiveBoard({ league, players, progress, goTo }: Props) {
   if (draft.status === "preview") {
     return (
       <section className="panel">
-        <p>The draft hasn't started yet. The live board opens when the commissioner starts it.</p>
+        <p>The draft hasn't started yet. The live board opens when the draft is started.</p>
         <button onClick={() => goTo("draft")}>See the positions</button>
       </section>
     );
@@ -51,16 +51,11 @@ export function LiveBoard({ league, players, progress, goTo }: Props) {
   const finished = draft.status === "complete";
   const config = draft.config;
 
-  const canEdit = (player: string, round: number) => {
-    if (isAdmin) return true;
-    return live && !!me && me.name === player && round <= draft.current_round;
-  };
-
   return (
     <>
       <section className="panel">
         <div className="row first">
-          {isAdmin && live ? (
+          {canEdit && live ? (
             <>
               <button onClick={() => void league.setRound(draft.id, draft.current_round - 1)} disabled={draft.current_round <= 1}>
                 Previous round
@@ -77,22 +72,18 @@ export function LiveBoard({ league, players, progress, goTo }: Props) {
             </>
           )}
         </div>
-        {isAdmin && live && (
+        {canEdit && live && (
           <label className="check">
             <input type="checkbox" checked={draft.auto_advance} onChange={e => void league.setAutoAdvance(draft.id, e.target.checked)} />
             Auto-advance when everyone has entered a pick
           </label>
         )}
         <div className="hint">
-          {isAdmin
-            ? "You're the commissioner, so you can enter or fix anyone's pick."
-            : me && live
-              ? "Type your pick under your position and press Enter. Everyone sees it right away."
-              : me && !live
-                ? "This draft is over, so picks are locked."
-                : live
-                  ? "You're watching this draft live. Picks appear as people make them."
-                  : "This draft is over. Browse the picks below."}
+          {canEdit
+            ? "Type each pick under the player's position and press Enter. Everyone watching sees it right away."
+            : live
+              ? "You're watching this draft live. Picks appear as people make them."
+              : "This draft is over. Browse the picks below."}
         </div>
       </section>
 
@@ -109,12 +100,12 @@ export function LiveBoard({ league, players, progress, goTo }: Props) {
             return (
               <div className={`live-cell${picked ? " picked" : ""}`}>
                 <PosChip entry={entry} dim={picked} />
-                {canEdit(p.name, round) ? (
+                {canEdit ? (
                   <PickInput
                     value={pick.note ?? ""}
                     picked={picked}
                     label={`${p.name} round ${round} ${entry.label}: player taken`}
-                    onCommit={text => void (isAdmin ? league.adminSetPick(draft.id, p.name, round, text) : league.submitPick(round, text))}
+                    onCommit={text => void league.setPick(draft.id, p.name, round, text)}
                   />
                 ) : (
                   <div className={`note readonly${picked ? " picked" : ""}`} title={pick.note}>

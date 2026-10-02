@@ -45,3 +45,13 @@ export function newSeed(): string {
   crypto.getRandomValues(buf);
   return buf[0].toString(36) + buf[1].toString(36);
 }
+
+const KEY_ALPHABET = "abcdefghijkmnpqrstuvwxyz23456789"; // 32 characters, no look-alikes (0/o, 1/l)
+export const MIN_KEY_LENGTH = 12;
+
+/** A random league key (100 bits). 256 is a multiple of 32, so every character is equally likely. */
+export function newLeagueKey(length = 20): string {
+  const bytes = new Uint8Array(length);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, b => KEY_ALPHABET[b % KEY_ALPHABET.length]).join("");
+}

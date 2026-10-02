@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { Commissioner } from "./components/Commissioner";
 import { DraftView } from "./components/DraftView";
 import { HistoryList } from "./components/HistoryList";
 import { LeagueHome } from "./components/LeagueHome";
 import { LiveBoard } from "./components/LiveBoard";
+import { Setup } from "./components/Setup";
 import { generateDraft, type PlayerDraft } from "./core/generate";
 import { totalRounds } from "./core/rules";
 import { connect, type Connection } from "./state/connect";
@@ -12,14 +12,14 @@ import { clearParams } from "./state/links";
 import type { Api } from "./state/types";
 import { useLeague } from "./state/useLeague";
 
-type Tab = "league" | "draft" | "live" | "history" | "commissioner";
+type Tab = "league" | "draft" | "live" | "history" | "setup";
 
 const TABS: { id: Tab; label: string }[] = [
-  { id: "league", label: "League" },
+  { id: "league", label: "Players" },
   { id: "draft", label: "Draft" },
   { id: "live", label: "Live board" },
   { id: "history", label: "History" },
-  { id: "commissioner", label: "Commissioner" },
+  { id: "setup", label: "Setup" },
 ];
 
 export function App() {
@@ -81,28 +81,24 @@ function Site({ api, demo }: { api: Api; demo: boolean }) {
   const league = useLeague(api);
   const { draft, current } = league;
   const [tab, setTab] = useState<Tab>("league");
-  const [invite, setInvite] = useState("");
   const [notice, setNotice] = useState<{ text: string; kind: "ok" | "error" } | null>(null);
 
-  // One-time links: ?join=CODE (invite) and ?claim=MEMBER.TOKEN (sign in on a new device).
-  const { claim } = league;
+  // The league link carries the key: ?key=SECRET (older links used ?join=SECRET). Use it, then tidy the address.
+  const { applyKey } = league;
   useEffect(() => {
     const params = new URLSearchParams(location.search);
-    const code = params.get("join");
-    const claimParam = params.get("claim");
-    if (code) { setInvite(code); setTab("league"); }
-    if (claimParam) {
-      const [memberId, token] = claimParam.split(".");
-      if (memberId && token) {
-        claim(memberId, token);
-        setNotice({ text: "You're signed in on this device.", kind: "ok" });
-        setTab("league");
-      }
-    }
-    clearParams("join", "claim");
-  }, [claim]);
+    const code = params.get("key") ?? params.get("join");
+    if (!code) return;
+    clearParams("key", "join");
+    void applyKey(code).then(err => {
+      setNotice(err
+        ? { text: "That league link isn't valid, so you can only watch. Ask for the current link.", kind: "error" }
+        : { text: "League link accepted. You can now add players, change settings and enter picks on this device.", kind: "ok" });
+      if (!err) setTab("league");
+    });
+  }, [applyKey]);
 
-  const { players, error } = useMemo<{ players: PlayerDraft[]; error: string | null }>(() => {
+  const { players: grid, error } = useMemo<{ players: PlayerDraft[]; error: string | null }>(() => {
     if (!draft) return { players: [], error: null };
     try {
       return { players: generateDraft(draft.config), error: null };
@@ -115,7 +111,7 @@ function Site({ api, demo }: { api: Api; demo: boolean }) {
   const viewingPast = !!draft && !!current && draft.id !== current.id;
   const rounds = draft ? totalRounds(draft.config.roster) : 0;
 
-  let sub: React.ReactNode = "Waiting for the commissioner to create a draft.";
+  let sub: React.ReactNode = "No draft yet.";
   if (draft?.status === "live") sub = <><span className="live-pill on-dark"><span className="live-dot" />Live</span> Round {draft.current_round} of {rounds}</>;
   else if (draft?.status === "preview") sub = "Draft preview. Positions lock when the draft starts.";
   else if (draft?.status === "complete") sub = `${draft.title} is complete.`;
@@ -134,10 +130,16 @@ function Site({ api, demo }: { api: Api; demo: boolean }) {
     <main>
       <Hero title={league.league?.name ?? "Madden Draft"} sub={sub} />
 
-      {demo && <div className="banner info">Demo mode: this runs on a practice database stored in your browser (add ?demo=reset to the address to start over). Commissioner passcode: <code>demo-passcode</code>, invite code: <code>DEMO</code>.</div>}
+      {demo && <div className="banner info">Demo mode: this runs on a practice database stored in your browser (add ?demo=reset to the address to start over). League key: <code>demo-league-key</code>. Open <code>?demo&amp;key=demo-league-key</code> to make changes.</div>}
       {league.loadError && <div className="banner error">Having trouble reaching the server ({league.loadError}). Retrying…</div>}
       {notice && <div className={`banner ${notice.kind}`}>{notice.text}</div>}
       {error && <div className="banner error">{error}</div>}
+      {league.keyProblem && (
+        <div className="banner error dismissible" role="alert">
+          <span>{league.keyProblem}</span>
+          <button className="small" onClick={league.dismissKeyProblem}>Dismiss</button>
+        </div>
+      )}
       {league.actionError && (
         <div className="banner error dismissible" role="alert">
           <span>{league.actionError}</span>
@@ -159,11 +161,11 @@ function Site({ api, demo }: { api: Api; demo: boolean }) {
         ))}
       </nav>
 
-      {tab === "league" && <LeagueHome league={league} inviteFromUrl={invite} goTo={setTab} />}
-      {tab === "draft" && <DraftView league={league} players={players} />}
-      {tab === "live" && <LiveBoard league={league} players={players} progress={progress} goTo={setTab} />}
+      {tab === "league" && <LeagueHome league={league} goTo={setTab} />}
+      {tab === "draft" && <DraftView league={league} players={grid} />}
+      {tab === "live" && <LiveBoard league={league} players={grid} progress={progress} goTo={setTab} />}
       {tab === "history" && <HistoryList league={league} onOpen={() => setTab("live")} />}
-      {tab === "commissioner" && <Commissioner league={league} />}
+      {tab === "setup" && <Setup league={league} />}
     </main>
   );
 }

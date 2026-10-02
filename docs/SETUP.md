@@ -10,22 +10,25 @@ Setup takes about 15 minutes and you only do it once.
 
 ## 2. Create the tables and functions
 
-1. In the project, open **SQL Editor** and click **New query**.
-2. Paste the whole contents of [`supabase/migrations/0001_league.sql`](../supabase/migrations/0001_league.sql) and click **Run**. It should finish with "Success".
+In the project, open **SQL Editor**, click **New query**, paste a file, and click **Run**. Do these two, in order, each in its own query:
 
-## 3. Create your league (this makes you the commissioner)
+1. [`supabase/migrations/0001_league.sql`](../supabase/migrations/0001_league.sql)
+2. [`supabase/migrations/0002_shared_key.sql`](../supabase/migrations/0002_shared_key.sql)
+
+Each should finish with "Success". (If you set the league up before the shared-key change, you only need to run 0002; it keeps your players, drafts and picks.)
+
+## 3. Create your league
 
 In the same SQL editor, run this with your own values:
 
 ```sql
-select bootstrap_league('Your League Name', 'a-long-commissioner-passcode', 'invite-code');
+select bootstrap_league('Your League Name', 'a-long-random-league-key');
 ```
 
 - **League name**: shown at the top of the site.
-- **Commissioner passcode** (8+ characters): unlocks the Commissioner tab. Make it long and unique. It is stored hashed and is never written to the repo.
-- **Invite code** (4+ characters): members need this to join. It goes into the invite link the app builds for you.
+- **League key** (12+ characters): the secret in your league link. Anyone who has it can add players, change settings, start drafts and enter picks. Make it long and random (you can replace it later from the Setup tab, which generates a strong one for you).
 
-You run this yourself, in the dashboard, because the website is deliberately not allowed to call it. Nobody who finds the site can claim the commissioner role.
+You run this yourself, in the dashboard, because the website is deliberately not allowed to call it.
 
 ## 4. Connect the site to the project
 
@@ -47,23 +50,23 @@ Any static host works. Netlify, Cloudflare Pages and Vercel all have free plans 
 
 ## Draft night
 
-1. Open the site, go to **Commissioner**, and enter your passcode.
-2. Copy the **invite link** and send it to the league. Each person opens it, types their name and picks their team.
-3. When everyone has joined, click **Create draft preview**. Look over the positions on the **Draft** tab. Re-roll everyone, or one person, until you are happy.
+1. Open your **league link**: `https://your-site/?key=your-league-key`. It remembers the key on that device, so you only need the link once. On the Setup tab you can copy the link at any time.
+2. On the **Players** tab, add everyone from one screen: type a name, choose their team, press Enter, repeat. Nobody has to join on their own.
+3. On the **Setup** tab, set the rules if you want (for example "QB by round 10") and click **Create draft preview**. Look over the positions on the **Draft** tab, and re-roll everyone or one person until you are happy.
 4. Click **Start draft**. Positions lock and the **Live board** opens for everyone.
-5. Each player types their pick in their own column and presses Enter. Everyone sees it right away. When every player has entered a pick for the round, the board moves to the next round by itself.
-6. You can enter or fix anyone's pick, move the round, or turn auto-advance off from the Live board.
-7. When every cell is filled the draft completes by itself and is kept in **History**. You can also end one early from the Commissioner tab.
+5. Type each pick under the player's position and press Enter. The cursor moves to the next player. When every player has a pick for the round, the board moves to the next round by itself.
+6. Anyone with the link can use the board at the same time, for example each person on their own phone. Anyone without the link can watch live by using the plain site address.
+7. When every cell is filled the draft completes by itself and is kept in **History**. You can also end one early from the Setup tab.
 
 ## Good to know
 
-- **Someone switched phones or cleared their browser?** In **Commissioner > Members**, click **Sign-in link** next to their name and send it to them. It signs them in again. The old sign-in on any other device stops working.
-- **Anyone can watch, only members can pick.** The site is public to anyone with the link. Joining needs the invite code, entering a pick needs that member's own sign-in, and everything else needs your passcode.
-- **No logins or passwords for members.** Sign-in is a private key stored in the person's browser. That is the right level for a friends' league, not for a public product.
+- **Who can change things:** anyone who has the league link. There is no commissioner and no passwords. Send the link only to people you trust. If it ends up somewhere it should not, use **Setup > Make a new league link**: the old key stops working immediately and you send the new link to your group.
+- **Watching needs no link.** The plain site address shows everything live and is read-only.
+- **"This is me":** on the Players tab you can mark which player you are on your device, which highlights your column on the board. It is just a bookmark on that device.
 - **Free Supabase projects pause after a week with no use.** If the site shows an error after a long gap, open the project in the dashboard and click **Restore**. Visit it a day or two before draft night.
 - **Backups.** Past drafts live in the database. In Supabase, **Table Editor** lets you export the `drafts` and `picks` tables as CSV.
 - **Live updates not appearing?** The migration adds the tables to Supabase's realtime publication. If it did not take, open **Database > Replication** and make sure `league`, `members`, `drafts` and `picks` are enabled. The site also re-checks every 10 seconds on its own.
 
 ## Trying it without Supabase
 
-Run `npm run dev` and open `http://localhost:5173/?demo`. This runs the same database code inside your browser with a practice league (commissioner passcode `demo-passcode`, invite code `DEMO`). It only exists in your browser, so use it to try things out, not to run a real draft. Add `?demo=reset` to wipe it and start over.
+Run `npm run dev` and open `http://localhost:5173/?demo`. This runs the same database code inside your browser with a practice league (league key `demo-league-key`; open `/?demo&key=demo-league-key` to make changes). It only exists in your browser, so use it to try things out, not to run a real draft. Add `?demo=reset` to wipe it and start over.

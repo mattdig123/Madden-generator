@@ -4,11 +4,11 @@
 // It is not shared between tabs or browsers.
 import { PGlite } from "@electric-sql/pglite";
 import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
-import migration from "../../supabase/migrations/0001_league.sql?raw";
+import migration1 from "../../supabase/migrations/0001_league.sql?raw";
+import migration2 from "../../supabase/migrations/0002_shared_key.sql?raw";
 import type { Api, DraftRow, LeagueData, LeagueRow, MemberRow, PickRow } from "./types";
 
-export const DEMO_PASSCODE = "demo-passcode";
-export const DEMO_INVITE = "DEMO";
+export const DEMO_KEY = "demo-league-key";
 
 const DB_NAME = "madden-demo";
 
@@ -28,8 +28,9 @@ export async function createDemoApi(): Promise<Api> {
   const exists = (await db.query<{ r: string | null }>("select to_regclass('public.league') as r")).rows[0].r;
   if (!exists) {
     await db.exec("create role anon nologin; create role authenticated nologin; create publication supabase_realtime;");
-    await db.exec(migration);
-    await db.query("select bootstrap_league($1, $2, $3)", ["Demo League", DEMO_PASSCODE, DEMO_INVITE]);
+    await db.exec(migration1);
+    await db.exec(migration2);
+    await db.query("select bootstrap_league($1, $2)", ["Demo League", DEMO_KEY]);
   }
 
   const listeners = new Set<() => void>();

@@ -3,9 +3,9 @@ import { PGlite } from "@electric-sql/pglite";
 import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
 import { beforeEach, describe, expect, it } from "vitest";
 
-const MIGRATION = readFileSync(new URL("../../supabase/migrations/0001_league.sql", import.meta.url), "utf8");
-const PASS = "correct-horse-battery";
-const INVITE = "JOIN123";
+const read = (name: string) => readFileSync(new URL(`../../supabase/migrations/${name}`, import.meta.url), "utf8");
+const MIGRATIONS = [read("0001_league.sql"), read("0002_shared_key.sql")];
+const KEY = "a-long-shared-league-key";
 // 3 rounds keeps the draft short: QB, RB, RB.
 const ROSTER = JSON.stringify([
   { label: "QB", count: 1, group: "qb" },
@@ -17,11 +17,9 @@ let db: PGlite;
 beforeEach(async () => {
   db = new PGlite({ extensions: { pgcrypto } });
   await db.exec("create role anon nologin; create role authenticated nologin; create publication supabase_realtime;");
-  await db.exec(MIGRATION);
-  await db.query("select bootstrap_league($1, $2, $3)", ["Test League", PASS, INVITE]);
+  for (const sql of MIGRATIONS) await db.exec(sql);
+  await db.query("select bootstrap_league($1, $2)", ["Test League", KEY]);
 });
-
-type Member = { id: string; token: string; name: string };
 
 /** Runs a query as the public `anon` role, like the browser does. */
 async function asAnon<T = Record<string, unknown>>(text: string, params: unknown[] = []): Promise<T[]> {
@@ -33,113 +31,196 @@ async function asAnon<T = Record<string, unknown>>(text: string, params: unknown
   }
 }
 
-async function join(name: string, team: string): Promise<Member> {
-  const [row] = await asAnon<{ r: { member_id: string; token: string } }>("select join_league($1, $2, $3) as r", [INVITE, name, team]);
-  return { id: row.r.member_id, token: row.r.token, name };
+type Player = { id: string; name: string };
+
+async function addPlayer(name: string, team: string, key = KEY): Promise<Player> {
+  const [row] = await asAnon<{ id: string }>("select add_player($1, $2, $3) as id", [key, name, team]);
+  return { id: row.id, name };
 }
 
-async function seedLeague(count = 3): Promise<Member[]> {
+async function seed(count = 3): Promise<Player[]> {
   const teams = ["kc", "buf", "sf", "dal"];
-  const members: Member[] = [];
-  for (let i = 0; i < count; i++) members.push(await join(["Matt", "Dave", "Chris", "Sam"][i], teams[i]));
-  return members;
+  const out: Player[] = [];
+  for (let i = 0; i < count; i++) out.push(await addPlayer(["Matt", "Dave", "Chris", "Sam"][i], teams[i]));
+  return out;
 }
 
 async function createPreview(): Promise<string> {
-  const [row] = await asAnon<{ id: string }>("select admin_create_preview($1, $2, $3, $4::jsonb, $5::jsonb) as id", [PASS, "Draft", "seed1", "[]", ROSTER]);
+  const [row] = await asAnon<{ id: string }>("select create_preview($1, $2, $3, $4::jsonb, $5::jsonb) as id", [KEY, "Draft", "seed1", "[]", ROSTER]);
   return row.id;
 }
 
 async function startDraft(): Promise<string> {
   const id = await createPreview();
-  await asAnon("select admin_start_draft($1, $2::uuid)", [PASS, id]);
+  await asAnon("select start_draft($1, $2::uuid)", [KEY, id]);
   return id;
 }
 
-const pick = (draft: string, m: Member, round: number, text: string, token = m.token) =>
-  asAnon("select submit_pick($1::uuid, $2::uuid, $3, $4::int, $5)", [draft, m.id, token, round, text]);
+const pick = (draft: string, player: string, round: number, text: string, key = KEY) =>
+  asAnon("select set_pick($1, $2::uuid, $3, $4::int, $5)", [key, draft, player, round, text]);
 
-const draftRow = async (id: string) => (await db.query<{ status: string; current_round: number }>("select status, current_round from drafts where id = $1", [id])).rows[0];
+const draftRow = async (id: string) => (await db.query<{ status: string; current_round: number; auto_advance: boolean }>("select status, current_round, auto_advance from drafts where id = $1", [id])).rows[0];
 const pickCount = async (id: string) => Number((await db.query<{ n: number }>("select count(*)::int as n from picks where draft_id = $1", [id])).rows[0].n);
 
 describe("migration hygiene", () => {
   it("never runs UPDATE or DELETE without a WHERE clause (Supabase rejects those)", () => {
-    const sql = MIGRATION.replace(/--.*$/gm, "");
+    const sql = MIGRATIONS.join("\n").replace(/--.*$/gm, "");
     const statements = sql.split(";").map(s => s.trim().replace(/\s+/g, " "));
     const bad = statements.filter(s => /^(update|delete from) /i.test(s) && !/\bwhere\b/i.test(s));
     expect(bad).toEqual([]);
+  });
+
+  it("leaves no commissioner or per-person secrets behind", async () => {
+    const tables = (await db.query<{ t: string }>("select table_name as t from information_schema.tables where table_schema = 'public'")).rows.map(r => r.t);
+    expect(tables).not.toContain("member_secret");
+    const cols = (await db.query<{ c: string }>("select column_name as c from information_schema.columns where table_name = 'league_secret'")).rows.map(r => r.c);
+    expect(cols).toEqual(expect.arrayContaining(["league_key"]));
+    expect(cols).not.toContain("passcode_hash");
   });
 });
 
 describe("permissions", () => {
   it("lets the public read league data but not write it", async () => {
-    await seedLeague(2);
+    await seed(2);
     expect(await asAnon("select name from members")).toHaveLength(2);
     expect(await asAnon("select name from league")).toHaveLength(1);
     await expect(asAnon("insert into members (name, team) values ('Eve', 'ne')")).rejects.toThrow();
     await expect(asAnon("update league set name = 'Hacked'")).rejects.toThrow();
     await expect(asAnon("delete from members")).rejects.toThrow();
+    await expect(asAnon("insert into picks (draft_id, player, round, player_taken) values (gen_random_uuid(), 'a', 1, 'b')")).rejects.toThrow();
   });
 
-  it("hides the secret tables", async () => {
-    await seedLeague(1);
+  it("hides the key table", async () => {
     await expect(asAnon("select * from league_secret")).rejects.toThrow();
-    await expect(asAnon("select * from member_secret")).rejects.toThrow();
   });
 
   it("does not let the browser call internal functions or bootstrap", async () => {
-    await expect(asAnon("select bootstrap_league('x', 'long-enough-pass', 'abcd')")).rejects.toThrow();
-    await expect(asAnon("select _require_admin($1)", [PASS])).rejects.toThrow();
+    await expect(asAnon("select bootstrap_league('x', 'a-long-enough-key')")).rejects.toThrow();
+    await expect(asAnon("select _require_key($1)", [KEY])).rejects.toThrow();
     await expect(asAnon("select _write_pick(gen_random_uuid(), 'a', 1, 'b')")).rejects.toThrow();
-    await expect(asAnon("select _new_token()")).rejects.toThrow();
   });
 
-  it("bootstrap refuses weak passcodes and a second league", async () => {
-    await expect(db.query("select bootstrap_league('x', 'short', 'abcd')")).rejects.toThrow();
-    await expect(db.query("select bootstrap_league('x', 'long-enough-pass', 'abcd')")).rejects.toThrow(/already exists/);
+  it("only exposes the intended functions to the public", async () => {
+    const rows = (await db.query<{ fn: string }>(
+      `select p.proname as fn from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and has_function_privilege('anon', p.oid, 'execute')
+         and p.proname not in ('crypt', 'digest', 'gen_salt', 'gen_random_bytes', 'gen_random_uuid')
+         and p.prokind = 'f' and p.pronamespace = 'public'::regnamespace
+         and p.proname !~ '^(pg_|armor|dearmor|decrypt|encrypt|hmac|pgp_|crypt)'
+       order by 1`,
+    )).rows.map(r => r.fn);
+    expect(rows).toEqual([
+      "add_player", "check_key", "create_preview", "delete_draft", "finish_draft", "remove_player",
+      "reroll", "rotate_key", "save_settings", "set_auto_advance", "set_pick", "set_round", "start_draft", "update_player",
+    ]);
   });
 
-  it("checks the commissioner passcode", async () => {
-    expect((await asAnon<{ ok: boolean }>("select admin_login($1) as ok", [PASS]))[0].ok).toBe(true);
-    expect((await asAnon<{ ok: boolean }>("select admin_login($1) as ok", ["wrong-passcode"]))[0].ok).toBe(false);
-    await expect(asAnon("select admin_get_invite($1)", ["wrong-passcode"])).rejects.toThrow(/passcode/);
-    expect((await asAnon<{ c: string }>("select admin_get_invite($1) as c", [PASS]))[0].c).toBe(INVITE);
+  it("bootstrap refuses short keys and a second league", async () => {
+    await expect(db.query("select bootstrap_league('x', 'a-long-enough-key')")).rejects.toThrow(/already exists/);
+    const empty = new PGlite({ extensions: { pgcrypto } });
+    await empty.exec("create role anon nologin; create role authenticated nologin; create publication supabase_realtime;");
+    for (const sql of MIGRATIONS) await empty.exec(sql);
+    await expect(empty.query("select bootstrap_league('x', 'short')")).rejects.toThrow(/at least 12/);
+    await expect(empty.query("select bootstrap_league('x', null)")).rejects.toThrow(/at least 12/);
+  });
+
+  it("rejects a wrong or missing key on every function", async () => {
+    const [matt] = await seed(2);
+    const draft = await startDraft();
+    const bad = "not-the-key";
+    // [function, sql, what the second parameter is]
+    const calls: [string, string, "member" | "draft" | null][] = [
+      ["add_player", "select add_player($1, 'Eve', 'ne')", null],
+      ["update_player", "select update_player($1, $2::uuid, 'Eve', 'ne')", "member"],
+      ["remove_player", "select remove_player($1, $2::uuid)", "member"],
+      ["save_settings", "select save_settings($1, 'x', null, null)", null],
+      ["create_preview", "select create_preview($1, 't', 's', '[]'::jsonb, '[]'::jsonb)", null],
+      ["reroll", "select reroll($1, $2::uuid, 's', null)", "draft"],
+      ["start_draft", "select start_draft($1, $2::uuid)", "draft"],
+      ["set_pick", "select set_pick($1, $2::uuid, 'Matt', 1, 'x')", "draft"],
+      ["set_round", "select set_round($1, $2::uuid, 2)", "draft"],
+      ["set_auto_advance", "select set_auto_advance($1, $2::uuid, false)", "draft"],
+      ["finish_draft", "select finish_draft($1, $2::uuid)", "draft"],
+      ["delete_draft", "select delete_draft($1, $2::uuid)", "draft"],
+      ["rotate_key", "select rotate_key($1, 'another-long-league-key')", null],
+    ];
+    for (const [name, sql, kind] of calls) {
+      const params = kind === null ? [bad] : [bad, kind === "member" ? matt.id : draft];
+      await expect(asAnon(sql, params), name).rejects.toThrow(/league key/);
+    }
+    await expect(asAnon("select add_player(null, 'Eve', 'ne')")).rejects.toThrow(/league key/);
+    // nothing was changed by any of those
+    expect(await asAnon("select id from members")).toHaveLength(2);
+    expect((await draftRow(draft)).status).toBe("live");
+  });
+
+  it("checks keys without raising", async () => {
+    expect((await asAnon<{ ok: boolean }>("select check_key($1) as ok", [KEY]))[0].ok).toBe(true);
+    expect((await asAnon<{ ok: boolean }>("select check_key('nope') as ok"))[0].ok).toBe(false);
+    expect((await asAnon<{ ok: boolean }>("select check_key(null) as ok"))[0].ok).toBe(false);
   });
 });
 
-describe("joining", () => {
-  it("rejects a bad invite code, duplicate names and duplicate teams", async () => {
-    await join("Matt", "kc");
-    await expect(asAnon("select join_league('nope', 'Dave', 'buf')")).rejects.toThrow(/invite/);
-    await expect(asAnon("select join_league($1, 'matt', 'buf')", [INVITE])).rejects.toThrow(/name/);
-    await expect(asAnon("select join_league($1, 'Dave', 'kc')", [INVITE])).rejects.toThrow(/team/);
+describe("players", () => {
+  it("adds many players with one key and no sign-in", async () => {
+    const players = await seed(4);
+    expect(players).toHaveLength(4);
+    expect((await asAnon<{ name: string }>("select name from members order by join_order")).map(r => r.name)).toEqual(["Matt", "Dave", "Chris", "Sam"]);
   });
 
-  it("stops new members once a draft is live", async () => {
-    await seedLeague(2);
+  it("rejects duplicate names (any case) and duplicate teams", async () => {
+    await addPlayer("Matt", "kc");
+    await expect(addPlayer("matt", "buf")).rejects.toThrow(/name/);
+    await expect(addPlayer("Dave", "kc")).rejects.toThrow(/team/);
+  });
+
+  it("limits the league to 32 players", async () => {
+    const teams = ["ari","atl","bal","buf","car","chi","cin","cle","dal","den","det","gb","hou","ind","jax","kc","lv","lac","lar","mia","min","ne","no","nyg","nyj","phi","pit","sf","sea","tb","ten","wsh"];
+    for (let i = 0; i < 32; i++) await addPlayer(`P${i}`, teams[i]);
+    await expect(addPlayer("One more", "xyz")).rejects.toThrow(/full/);
+  });
+
+  it("edits and removes players, keeping names and teams unique", async () => {
+    const [matt, dave] = await seed(2);
+    await asAnon("select update_player($1, $2::uuid, 'Matthew', 'ne')", [KEY, matt.id]);
+    expect((await asAnon<{ name: string; team: string }>("select name, team from members where id = $1::uuid", [matt.id]))[0]).toEqual({ name: "Matthew", team: "ne" });
+    await asAnon("select update_player($1, $2::uuid, 'Matthew', 'ne')", [KEY, matt.id]); // saving unchanged values is fine
+    await expect(asAnon("select update_player($1, $2::uuid, 'matthew', 'buf')", [KEY, dave.id])).rejects.toThrow(/name/);
+    await expect(asAnon("select update_player($1, $2::uuid, 'Dave', 'ne')", [KEY, dave.id])).rejects.toThrow(/team/);
+    await asAnon("select remove_player($1, $2::uuid)", [KEY, dave.id]);
+    expect(await asAnon("select id from members")).toHaveLength(1);
+  });
+
+  it("blocks adding, editing and removing during a live draft", async () => {
+    const [matt] = await seed(2);
     await startDraft();
-    await expect(asAnon("select join_league($1, 'Late', 'ne')", [INVITE])).rejects.toThrow(/in progress/);
+    await expect(addPlayer("Late", "ne")).rejects.toThrow(/live draft/);
+    await expect(asAnon("select update_player($1, $2::uuid, 'X', 'ne')", [KEY, matt.id])).rejects.toThrow(/live draft/);
+    await expect(asAnon("select remove_player($1, $2::uuid)", [KEY, matt.id])).rejects.toThrow(/live draft/);
   });
 
-  it("clears a stale preview when someone joins", async () => {
-    await seedLeague(2);
+  it("clears a stale preview when the players change", async () => {
+    const [matt] = await seed(2);
     await createPreview();
-    await join("Chris", "sf");
+    await addPlayer("Chris", "sf");
+    expect(await asAnon("select id from drafts")).toHaveLength(0);
+    await createPreview();
+    await asAnon("select update_player($1, $2::uuid, 'Matty', 'kc')", [KEY, matt.id]);
     expect(await asAnon("select id from drafts")).toHaveLength(0);
   });
 });
 
 describe("draft lifecycle", () => {
-  it("needs two members, and only one draft can be live", async () => {
-    await join("Matt", "kc");
-    await expect(createPreview()).rejects.toThrow(/At least 2/);
-    await join("Dave", "buf");
+  it("needs two players, and only one draft can be live", async () => {
+    await addPlayer("Matt", "kc");
+    await expect(createPreview()).rejects.toThrow(/at least 2/i);
+    await addPlayer("Dave", "buf");
     await startDraft();
     await expect(createPreview()).rejects.toThrow(/in progress/);
   });
 
-  it("snapshots members and teams into the draft config", async () => {
-    await seedLeague(3);
+  it("snapshots players and teams into the draft config", async () => {
+    await seed(3);
     const id = await createPreview();
     const [{ config }] = (await db.query<{ config: { names: string[]; teams: Record<string, string>; roster: unknown[] } }>("select config from drafts where id = $1", [id])).rows;
     expect(config.names).toEqual(["Matt", "Dave", "Chris"]);
@@ -148,148 +229,154 @@ describe("draft lifecycle", () => {
   });
 
   it("re-rolls only while a preview", async () => {
-    await seedLeague(2);
+    await seed(2);
     const id = await createPreview();
-    await asAnon("select admin_reroll($1, $2::uuid, 'seed2', null)", [PASS, id]);
-    await asAnon("select admin_reroll($1, $2::uuid, null, 'Dave')", [PASS, id]);
-    await asAnon("select admin_reroll($1, $2::uuid, null, 'Dave')", [PASS, id]);
+    await asAnon("select reroll($1, $2::uuid, 'seed2', null)", [KEY, id]);
+    await asAnon("select reroll($1, $2::uuid, null, 'Dave')", [KEY, id]);
+    await asAnon("select reroll($1, $2::uuid, null, 'Dave')", [KEY, id]);
     const [{ config }] = (await db.query<{ config: { seed: string; rerolls: Record<string, number> } }>("select config from drafts where id = $1", [id])).rows;
     expect(config.seed).toBe("seed2");
     expect(config.rerolls).toEqual({ Dave: 2 });
-    await expect(asAnon("select admin_reroll($1, $2::uuid, null, 'Nobody')", [PASS, id])).rejects.toThrow(/No such player/);
-    await asAnon("select admin_start_draft($1, $2::uuid)", [PASS, id]);
-    await expect(asAnon("select admin_reroll($1, $2::uuid, 'seed3', null)", [PASS, id])).rejects.toThrow(/preview/);
+    await expect(asAnon("select reroll($1, $2::uuid, null, 'Nobody')", [KEY, id])).rejects.toThrow(/No such player/);
+    await asAnon("select start_draft($1, $2::uuid)", [KEY, id]);
+    await expect(asAnon("select reroll($1, $2::uuid, 'seed3', null)", [KEY, id])).rejects.toThrow(/preview/);
   });
 
-  it("can only be started and managed with the passcode", async () => {
-    await seedLeague(2);
-    const id = await createPreview();
-    await expect(asAnon("select admin_start_draft('wrong-passcode', $1::uuid)", [id])).rejects.toThrow(/passcode/);
-    await expect(asAnon("select admin_delete_draft('wrong-passcode', $1::uuid)", [id])).rejects.toThrow(/passcode/);
+  it("saves league settings and clears a stale preview", async () => {
+    await seed(2);
+    await createPreview();
+    await asAnon("select save_settings($1, 'Renamed', $2::jsonb, $3::jsonb)", [KEY, "[]", ROSTER]);
+    expect((await asAnon<{ name: string }>("select name from league"))[0].name).toBe("Renamed");
+    expect(await asAnon("select id from drafts")).toHaveLength(0);
   });
 });
 
-describe("entering picks", () => {
-  it("only accepts picks with the member's own token", async () => {
-    const [matt, dave] = await seedLeague(3);
+describe("entering picks (anyone with the key, any player)", () => {
+  it("sets any player's pick", async () => {
+    await seed(3);
     const id = await startDraft();
-    await expect(pick(id, matt, 1, "Mahomes", "bad-token")).rejects.toThrow(/not signed in/);
-    // Dave's token cannot be used to act as Matt
-    await expect(pick(id, matt, 1, "Mahomes", dave.token)).rejects.toThrow(/not signed in/);
-    await pick(id, matt, 1, "Mahomes");
-    const rows = (await db.query<{ player: string }>("select player from picks where draft_id = $1", [id])).rows;
-    expect(rows).toEqual([{ player: "Matt" }]);
+    await pick(id, "Matt", 1, "Mahomes");
+    await pick(id, "Dave", 1, "Allen");
+    const rows = (await db.query<{ player: string; player_taken: string }>("select player, player_taken from picks where draft_id = $1 order by player", [id])).rows;
+    expect(rows).toEqual([{ player: "Dave", player_taken: "Allen" }, { player: "Matt", player_taken: "Mahomes" }]);
   });
 
-  it("blocks future rounds, unknown rounds, and non-live drafts", async () => {
-    const [matt] = await seedLeague(2);
+  it("rejects unknown players, unknown rounds and picks before the draft starts", async () => {
+    await seed(2);
     const preview = await createPreview();
-    await expect(pick(preview, matt, 1, "x")).rejects.toThrow(/not live/);
-    await asAnon("select admin_start_draft($1, $2::uuid)", [PASS, preview]);
-    await expect(pick(preview, matt, 2, "x")).rejects.toThrow(/not opened/);
-    await expect(pick(preview, matt, 9, "x")).rejects.toThrow(/no round/);
+    await expect(pick(preview, "Matt", 1, "x")).rejects.toThrow(/not started/);
+    await asAnon("select start_draft($1, $2::uuid)", [KEY, preview]);
+    await expect(pick(preview, "Ghost", 1, "x")).rejects.toThrow(/No such player/);
+    await expect(pick(preview, "Matt", 9, "x")).rejects.toThrow(/no round/);
+    await expect(pick(preview, "Matt", 0, "x")).rejects.toThrow(/no round/);
   });
 
-  it("advances once every member has entered a name for the round on the clock", async () => {
-    const [matt, dave, chris] = await seedLeague(3);
+  it("lets picks be entered ahead of the round on the clock", async () => {
+    await seed(2);
     const id = await startDraft();
-    await pick(id, matt, 1, "Mahomes");
-    await pick(id, dave, 1, "Allen");
+    await pick(id, "Matt", 3, "Future pick");
+    expect(await pickCount(id)).toBe(1);
     expect((await draftRow(id)).current_round).toBe(1);
-    await pick(id, chris, 1, "Lamar");
+  });
+
+  it("advances once every player has entered a name for the round on the clock", async () => {
+    await seed(3);
+    const id = await startDraft();
+    await pick(id, "Matt", 1, "Mahomes");
+    await pick(id, "Dave", 1, "Allen");
+    expect((await draftRow(id)).current_round).toBe(1);
+    await pick(id, "Chris", 1, "Lamar");
     expect((await draftRow(id)).current_round).toBe(2);
   });
 
   it("ignores blank entries, corrections and clearing when deciding to advance", async () => {
-    const [matt, dave] = await seedLeague(2);
+    await seed(2);
     const id = await startDraft();
-    await pick(id, matt, 1, "Mahomes");
-    await pick(id, dave, 1, "   "); // whitespace is not a pick
+    await pick(id, "Matt", 1, "Mahomes");
+    await pick(id, "Dave", 1, "   ");
     expect((await draftRow(id)).current_round).toBe(1);
     expect(await pickCount(id)).toBe(1);
-    await pick(id, matt, 1, "Mahomes II"); // a correction is not a new pick
+    await pick(id, "Matt", 1, "Mahomes II");
     expect((await draftRow(id)).current_round).toBe(1);
-    await pick(id, matt, 1, ""); // clearing removes it
+    await pick(id, "Matt", 1, "");
     expect(await pickCount(id)).toBe(0);
-    await pick(id, matt, 1, "Mahomes");
-    await pick(id, dave, 1, "Allen");
+    await pick(id, "Matt", 1, "Mahomes");
+    await pick(id, "Dave", 1, "Allen");
     expect((await draftRow(id)).current_round).toBe(2);
   });
 
-  it("does not advance when auto-advance is off, and the commissioner can move the round", async () => {
-    const [matt, dave] = await seedLeague(2);
+  it("does not advance when auto-advance is off, and the round can be moved by hand", async () => {
+    await seed(2);
     const id = await startDraft();
-    await asAnon("select admin_set_auto_advance($1, $2::uuid, false)", [PASS, id]);
-    await pick(id, matt, 1, "Mahomes");
-    await pick(id, dave, 1, "Allen");
+    await asAnon("select set_auto_advance($1, $2::uuid, false)", [KEY, id]);
+    await pick(id, "Matt", 1, "Mahomes");
+    await pick(id, "Dave", 1, "Allen");
     expect((await draftRow(id)).current_round).toBe(1);
-    await asAnon("select admin_set_round($1, $2::uuid, 3)", [PASS, id]);
+    await asAnon("select set_round($1, $2::uuid, 3)", [KEY, id]);
     expect((await draftRow(id)).current_round).toBe(3);
-    await expect(asAnon("select admin_set_round($1, $2::uuid, 4)", [PASS, id])).rejects.toThrow(/no round/);
+    await expect(asAnon("select set_round($1, $2::uuid, 4)", [KEY, id])).rejects.toThrow(/no round/);
   });
 
-  it("completes the draft when every cell is filled, then locks member edits", async () => {
-    const [matt, dave] = await seedLeague(2);
+  it("completes the draft when every cell is filled", async () => {
+    await seed(2);
     const id = await startDraft();
     for (const round of [1, 2, 3]) {
-      await pick(id, matt, round, `M${round}`);
-      await pick(id, dave, round, `D${round}`);
+      await pick(id, "Matt", round, `M${round}`);
+      await pick(id, "Dave", round, `D${round}`);
     }
     const row = await draftRow(id);
     expect(row.status).toBe("complete");
     expect(row.current_round).toBe(3);
-    await expect(pick(id, matt, 3, "late edit")).rejects.toThrow(/not live/);
-  });
-
-  it("lets the commissioner enter or fix anyone's pick, and still auto-advances", async () => {
-    await seedLeague(2);
-    const id = await startDraft();
-    await asAnon("select admin_set_pick($1, $2::uuid, 'Matt', 1, 'Mahomes')", [PASS, id]);
-    await asAnon("select admin_set_pick($1, $2::uuid, 'Dave', 1, 'Allen')", [PASS, id]);
-    expect((await draftRow(id)).current_round).toBe(2);
-    await asAnon("select admin_set_pick($1, $2::uuid, 'Dave', 1, 'Josh Allen')", [PASS, id]);
-    const [{ player_taken }] = (await db.query<{ player_taken: string }>("select player_taken from picks where draft_id = $1 and player = 'Dave'", [id])).rows;
-    expect(player_taken).toBe("Josh Allen");
-    await expect(asAnon("select admin_set_pick('wrong-passcode', $1::uuid, 'Matt', 1, 'x')", [id])).rejects.toThrow(/passcode/);
-    await expect(asAnon("select admin_set_pick($1, $2::uuid, 'Ghost', 1, 'x')", [PASS, id])).rejects.toThrow(/No such player/);
+    // a completed draft can still be corrected
+    await pick(id, "Matt", 3, "Fixed");
+    expect((await db.query<{ player_taken: string }>("select player_taken from picks where draft_id = $1 and player = 'Matt' and round = 3", [id])).rows[0].player_taken).toBe("Fixed");
   });
 
   it("can end a draft early and keep it in history", async () => {
-    const [matt] = await seedLeague(2);
+    await seed(2);
     const id = await startDraft();
-    await pick(id, matt, 1, "Mahomes");
-    await asAnon("select admin_finish_draft($1, $2::uuid)", [PASS, id]);
+    await pick(id, "Matt", 1, "Mahomes");
+    await asAnon("select finish_draft($1, $2::uuid)", [KEY, id]);
     expect((await draftRow(id)).status).toBe("complete");
     expect(await pickCount(id)).toBe(1);
-    // a new draft can now be created
     await expect(createPreview()).resolves.toBeTruthy();
+  });
+
+  it("deletes a draft and its picks", async () => {
+    await seed(2);
+    const id = await startDraft();
+    await pick(id, "Matt", 1, "Mahomes");
+    await asAnon("select delete_draft($1, $2::uuid)", [KEY, id]);
+    expect(await asAnon("select id from drafts")).toHaveLength(0);
+    expect(await asAnon("select 1 from picks")).toHaveLength(0);
   });
 });
 
-describe("member management", () => {
-  it("issues a new token and the old one stops working", async () => {
-    const [matt] = await seedLeague(2);
-    const id = await startDraft();
-    const [{ t }] = await asAnon<{ t: string }>("select admin_issue_claim_token($1, $2::uuid) as t", [PASS, matt.id]);
-    await expect(pick(id, matt, 1, "Mahomes", matt.token)).rejects.toThrow(/not signed in/);
-    await pick(id, matt, 1, "Mahomes", t);
-    await expect(asAnon("select admin_issue_claim_token('wrong-passcode', $1::uuid)", [matt.id])).rejects.toThrow(/passcode/);
+describe("rotating the key", () => {
+  it("locks out the old key and accepts the new one", async () => {
+    const NEW = "brand-new-league-key-1";
+    await asAnon("select rotate_key($1, $2)", [KEY, NEW]);
+    await expect(addPlayer("Matt", "kc", KEY)).rejects.toThrow(/league key/);
+    await expect(addPlayer("Matt", "kc", NEW)).resolves.toBeTruthy();
+    expect((await asAnon<{ ok: boolean }>("select check_key($1) as ok", [KEY]))[0].ok).toBe(false);
   });
 
-  it("removes members only outside a live draft", async () => {
-    const [matt] = await seedLeague(3);
-    await asAnon("select admin_remove_member($1, $2::uuid)", [PASS, matt.id]);
-    expect(await asAnon("select id from members")).toHaveLength(2);
-    await startDraft();
-    const [{ id }] = await asAnon<{ id: string }>("select id from members limit 1");
-    await expect(asAnon("select admin_remove_member($1, $2::uuid)", [PASS, id])).rejects.toThrow(/live draft/);
+  it("refuses short keys", async () => {
+    await expect(asAnon("select rotate_key($1, 'too-short')", [KEY])).rejects.toThrow(/at least 12/);
+    expect((await asAnon<{ ok: boolean }>("select check_key($1) as ok", [KEY]))[0].ok).toBe(true);
   });
+});
 
-  it("saves league settings and clears a stale preview", async () => {
-    await seedLeague(2);
-    await createPreview();
-    await asAnon("select admin_save_settings($1, 'Renamed', $2::jsonb, $3::jsonb)", [PASS, "[]", ROSTER]);
-    expect((await asAnon<{ name: string }>("select name from league"))[0].name).toBe("Renamed");
-    expect(await asAnon("select id from drafts")).toHaveLength(0);
+describe("upgrading a league that used the old commissioner model", () => {
+  it("keeps the old invite code as the league key and keeps existing data", async () => {
+    const old = new PGlite({ extensions: { pgcrypto } });
+    await old.exec("create role anon nologin; create role authenticated nologin; create publication supabase_realtime;");
+    await old.exec(MIGRATIONS[0]);
+    await old.query("select bootstrap_league('Old League', 'old-commissioner-pass', 'OLDCODE')");
+    await old.query("select join_league('OLDCODE', 'Matt', 'kc')");
+    await old.exec(MIGRATIONS[1]);
+    expect((await old.query<{ ok: boolean }>("select check_key('OLDCODE') as ok")).rows[0].ok).toBe(true);
+    expect((await old.query("select name from members")).rows).toEqual([{ name: "Matt" }]);
+    expect((await old.query("select name from league")).rows).toEqual([{ name: "Old League" }]);
   });
 });

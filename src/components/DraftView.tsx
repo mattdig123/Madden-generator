@@ -10,11 +10,11 @@ interface Props {
 }
 
 export function DraftView({ league, players }: Props) {
-  const { draft, isAdmin, me } = league;
+  const { draft, canEdit, me } = league;
   const [msg, setMsg] = useState<{ text: string; kind: "ok" | "error" } | null>(null);
 
   if (!draft) {
-    return <section className="panel"><p>No draft yet. The commissioner will create one once everyone has joined.</p></section>;
+    return <section className="panel"><p>No draft yet. Once the players are added, someone creates one on the Setup tab.</p></section>;
   }
 
   const { config } = draft;
@@ -48,7 +48,7 @@ export function DraftView({ league, players }: Props) {
           {draft.status === "complete" && <span className="badge">Complete</span>}
         </div>
         {preview && (
-          <p className="hint">Positions can still change. They lock when the commissioner starts the draft.</p>
+          <p className="hint">Positions can still change. They lock when the draft is started.</p>
         )}
         <div className="hint">
           {players.length} players · {players[0]?.picks.length} rounds
@@ -57,13 +57,13 @@ export function DraftView({ league, players }: Props) {
       </section>
 
       <div className="row controls first">
-        {isAdmin && preview && (
+        {canEdit && preview && (
           <>
             <button onClick={() => run(() => league.rerollAll(draft.id), "Re-rolled everyone.")}>Re-roll all</button>
             <button
               className="primary"
               onClick={() => {
-                if (confirm("Start the draft? Positions lock and no one can join until it ends.")) void run(() => league.startDraft(draft.id));
+                if (confirm("Start the draft? Positions lock and players can't be changed until it ends.")) void run(() => league.startDraft(draft.id));
               }}
             >
               Start draft
@@ -80,7 +80,7 @@ export function DraftView({ league, players }: Props) {
         players={players}
         mine={me?.name}
         highlightRound={draft.status === "live" ? draft.current_round : undefined}
-        onReroll={isAdmin && preview ? name => void run(() => league.rerollPlayer(draft.id, name)) : undefined}
+        onReroll={canEdit && preview ? name => void run(() => league.rerollPlayer(draft.id, name)) : undefined}
         version={name => `${config.seed}:${config.rerolls[name] ?? 0}:${name}`}
       />
     </>

@@ -414,3 +414,10 @@ label.check input { width: 16px; height: 16px; accent-color: #22c55e; }
   tr.current td, tr.current td.round { background: #fff !important; }
   .pos { color: #000; background: none !important; box-shadow: none; outline: 1px solid #999; }
 }
+
+/* players page */
+.card-actions { display: flex; gap: 4px; flex-wrap: wrap; width: 100%; }
+.card-actions .small { margin-top: 0; }
+.member-card { flex-wrap: wrap; }
+.member-card.editing { flex-direction: column; align-items: stretch; }
+.member-card.editing .row { margin: 0; }

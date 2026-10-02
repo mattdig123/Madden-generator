@@ -159,3 +159,16 @@ describe("teams", () => {
 
 
 });
+
+describe("newLeagueKey", () => {
+  it("makes long, unambiguous, different keys", async () => {
+    const { newLeagueKey, MIN_KEY_LENGTH } = await import("./rng");
+    const keys = new Set(Array.from({ length: 200 }, () => newLeagueKey()));
+    expect(keys.size).toBe(200);
+    for (const k of keys) {
+      expect(k.length).toBeGreaterThanOrEqual(MIN_KEY_LENGTH);
+      expect(k).toMatch(/^[abcdefghijkmnpqrstuvwxyz23456789]+$/);
+    }
+    expect(newLeagueKey(30)).toHaveLength(30);
+  });
+});

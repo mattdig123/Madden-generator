@@ -3,7 +3,7 @@ import { DEFAULT_ROSTER, DEFAULT_RULES } from "../core/roster";
 import { newSeed } from "../core/rng";
 import type { RosterEntry, Rule } from "../core/types";
 import { pickCurrent } from "./derive";
-import { loadAdmin, loadIdentity, saveAdmin, saveIdentity, type Identity } from "./local";
+import { loadKey, loadMe, saveKey, saveMe } from "./local";
 import type { Api, LeagueData, PickRow } from "./types";
 
 const POLL_MS = 10_000;
@@ -14,19 +14,15 @@ export function useLeague(api: Api) {
   const [picks, setPicks] = useState<PickRow[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [viewedId, setViewedId] = useState<string | null>(null);
-  const [identity, setIdentity] = useState<Identity | null>(loadIdentity);
-  const [adminPass, setAdminPass] = useState<string | null>(loadAdmin);
-  const [adminOk, setAdminOk] = useState(false);
+  const [key, setKey] = useState<string | null>(loadKey);
+  const [keyOk, setKeyOk] = useState(false);
+  const [keyProblem, setKeyProblem] = useState<string | null>(null);
+  const [meId, setMeId] = useState<string | null>(loadMe);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const viewedRef = useRef(viewedId);
   viewedRef.current = viewedId;
   const seq = useRef(0);
-  // Ordering of "identity was set" vs "league data was loaded", so a fresh sign-in is never judged
-  // against a member list that was fetched before it happened.
-  const clock = useRef(0);
-  const identityAt = useRef(0);
-  const loadedAt = useRef(0);
 
   const refresh = useCallback(async () => {
     const mine = ++seq.current;
@@ -35,7 +31,6 @@ export function useLeague(api: Api) {
       const target = d.drafts.find(x => x.id === viewedRef.current) ?? pickCurrent(d.drafts);
       const p = target ? await api.loadPicks(target.id) : [];
       if (mine !== seq.current) return; // a newer refresh or local edit superseded this one
-      loadedAt.current = ++clock.current;
       setData(d);
       setPicks(p);
       setLoadError(null);
@@ -58,57 +53,51 @@ export function useLeague(api: Api) {
     return () => { off(); clearInterval(poll); clearTimeout(timer); document.removeEventListener("visibilitychange", onVisible); };
   }, [api, refresh]);
 
-  // Confirm a remembered commissioner passcode is still valid.
+  // Confirm the remembered key still works (it stops working if someone makes a new league link).
   useEffect(() => {
-    if (!adminPass) { setAdminOk(false); return; }
+    if (!key) { setKeyOk(false); return; }
     let cancelled = false;
-    api.rpc<boolean>("admin_login", { p_passcode: adminPass })
+    api.rpc<boolean>("check_key", { p_key: key })
       .then(ok => {
         if (cancelled) return;
-        setAdminOk(ok);
-        if (!ok) { saveAdmin(null); setAdminPass(null); }
+        setKeyOk(ok);
+        if (!ok) {
+          saveKey(null);
+          setKey(null);
+          setKeyProblem("The league link on this device is out of date, so it can only watch. Ask for the new link.");
+        }
       })
-      .catch(() => { /* offline: keep the passcode and try again next load */ });
+      .catch(() => { /* offline: keep the key and try again next load */ });
     return () => { cancelled = true; };
-  }, [api, adminPass]);
+  }, [api, key]);
 
   const drafts = data?.drafts ?? [];
-  const members = data?.members ?? [];
+  const players = data?.members ?? [];
   const current = useMemo(() => pickCurrent(drafts), [drafts]);
   const draft = drafts.find(d => d.id === viewedId) ?? current;
-  const me = identity ? members.find(m => m.id === identity.memberId) : undefined;
+  const me = meId ? players.find(m => m.id === meId) : undefined;
 
-  // A remembered identity whose member no longer exists (removed, or the league was reset).
+  // "Me" points at a player that has since been removed.
   useEffect(() => {
-    if (!data || !identity || loadedAt.current < identityAt.current) return;
-    if (!data.members.some(m => m.id === identity.memberId)) {
-      saveIdentity(null);
-      setIdentity(null);
-    }
-  }, [data, identity]);
-
-  const signIn = useCallback((id: Identity) => {
-    identityAt.current = ++clock.current;
-    saveIdentity(id);
-    setIdentity(id);
-  }, []);
+    if (data && meId && !data.members.some(m => m.id === meId)) { saveMe(null); setMeId(null); }
+  }, [data, meId]);
 
   const rules: Rule[] = data?.league?.rules ?? DEFAULT_RULES;
   const roster: RosterEntry[] = data?.league?.roster ?? DEFAULT_ROSTER;
-  const isAdmin = adminOk && adminPass !== null;
+  const canEdit = keyOk && key !== null;
 
   /**
-   * Runs an action, refreshes, and returns an error message (or null on success). Failures are also
-   * kept in `actionError` so they show up even when the caller ignores the result (like a pick box).
+   * Runs an action, refreshes, and returns an error message (or null on success). Pass `loud` for
+   * actions whose caller ignores the result (like a pick box) so a failure still shows in the banner.
    */
-  const act = useCallback(async (fn: () => Promise<unknown>): Promise<string | null> => {
+  const act = useCallback(async (fn: () => Promise<unknown>, loud = false): Promise<string | null> => {
     try {
       await fn();
       await refresh();
       return null;
     } catch (e) {
       await refresh();
-      setActionError(message(e));
+      if (loud) setActionError(message(e));
       return message(e);
     }
   }, [refresh]);
@@ -122,67 +111,63 @@ export function useLeague(api: Api) {
     });
   }, []);
 
-  const claim = useCallback((memberId: string, token: string) => signIn({ memberId, token }), [signIn]);
-
-  const admin = useCallback(
-    (fn: string, args: Record<string, unknown>) => api.rpc(fn, { p_passcode: adminPass, ...args }),
-    [api, adminPass],
+  const call = useCallback(
+    (fn: string, args: Record<string, unknown>) => api.rpc(fn, { p_key: key, ...args }),
+    [api, key],
   );
 
   return {
-    data, picks, loadError, actionError, dismissError: () => setActionError(null), drafts, members, current, draft, me, identity, isAdmin,
+    data, picks, loadError, actionError, dismissError: () => setActionError(null),
+    drafts, players, current, draft, me, canEdit, key, keyProblem, dismissKeyProblem: () => setKeyProblem(null),
     league: data?.league ?? null, rules, roster,
     viewedId, viewDraft: setViewedId,
 
-    // --- members ---
-    join: (invite: string, name: string, team: string) => act(async () => {
-      const r = await api.rpc<{ member_id: string; token: string }>("join_league", { p_invite: invite, p_name: name, p_team: team });
-      signIn({ memberId: r.member_id, token: r.token });
-    }),
-    claim,
-    forgetIdentity: () => { saveIdentity(null); setIdentity(null); },
-    submitPick: (round: number, text: string) => {
-      if (!draft || !identity || !me) return Promise.resolve("You are not signed in as a member");
-      optimisticPick(draft.id, me.name, round, text);
-      return act(() => api.rpc("submit_pick", {
-        p_draft: draft.id, p_member: identity.memberId, p_token: identity.token, p_round: round, p_text: text,
-      }));
-    },
-
-    // --- commissioner ---
-    adminLogin: async (passcode: string): Promise<string | null> => {
+    // --- this device ---
+    /** Uses a league key from a link (or pasted in). Returns an error message, or null if it worked. */
+    applyKey: async (candidate: string): Promise<string | null> => {
       try {
-        const ok = await api.rpc<boolean>("admin_login", { p_passcode: passcode });
-        if (!ok) return "That passcode is not right";
-        saveAdmin(passcode);
-        setAdminPass(passcode);
-        setAdminOk(true);
+        const ok = await api.rpc<boolean>("check_key", { p_key: candidate.trim() });
+        if (!ok) return "That league key isn't right.";
+        saveKey(candidate.trim());
+        setKey(candidate.trim());
+        setKeyOk(true);
+        setKeyProblem(null);
         return null;
       } catch (e) { return message(e); }
     },
-    adminLogout: () => { saveAdmin(null); setAdminPass(null); setAdminOk(false); },
-    getInvite: () => admin("admin_get_invite", {}) as Promise<string>,
-    saveSettings: (name: string, rules: Rule[], roster: RosterEntry[]) =>
-      act(() => admin("admin_save_settings", { p_name: name, p_rules: rules, p_roster: roster })),
-    removeMember: (id: string) => act(() => admin("admin_remove_member", { p_member: id })),
-    issueClaim: (id: string) => admin("admin_issue_claim_token", { p_member: id }) as Promise<string>,
+    forgetKey: () => { saveKey(null); setKey(null); setKeyOk(false); },
+    setMe: (id: string | null) => { saveMe(id); setMeId(id); },
+
+    // --- players ---
+    addPlayer: (name: string, team: string) => act(() => call("add_player", { p_name: name, p_team: team })),
+    updatePlayer: (id: string, name: string, team: string) => act(() => call("update_player", { p_player: id, p_name: name, p_team: team })),
+    removePlayer: (id: string) => act(() => call("remove_player", { p_player: id }), true),
+
+    // --- settings and drafts ---
+    rotateKey: (newKey: string) => act(async () => {
+      await call("rotate_key", { p_new_key: newKey });
+      saveKey(newKey);
+      setKey(newKey);
+    }),
+    saveSettings: (name: string, nextRules: Rule[], nextRoster: RosterEntry[]) =>
+      act(() => call("save_settings", { p_name: name, p_rules: nextRules, p_roster: nextRoster })),
     createPreview: (title: string, seed: string) => act(async () => {
-      await admin("admin_create_preview", { p_title: title, p_seed: seed.trim() || newSeed(), p_rules: rules, p_roster: roster });
+      await call("create_preview", { p_title: title, p_seed: seed.trim() || newSeed(), p_rules: rules, p_roster: roster });
       setViewedId(null);
     }),
-    rerollAll: (draftId: string) => act(() => admin("admin_reroll", { p_draft: draftId, p_seed: newSeed(), p_player: null })),
-    rerollPlayer: (draftId: string, player: string) => act(() => admin("admin_reroll", { p_draft: draftId, p_seed: null, p_player: player })),
-    startDraft: (draftId: string) => act(() => admin("admin_start_draft", { p_draft: draftId })),
-    finishDraft: (draftId: string) => act(() => admin("admin_finish_draft", { p_draft: draftId })),
+    rerollAll: (draftId: string) => act(() => call("reroll", { p_draft: draftId, p_seed: newSeed(), p_player: null })),
+    rerollPlayer: (draftId: string, player: string) => act(() => call("reroll", { p_draft: draftId, p_seed: null, p_player: player })),
+    startDraft: (draftId: string) => act(() => call("start_draft", { p_draft: draftId })),
+    finishDraft: (draftId: string) => act(() => call("finish_draft", { p_draft: draftId })),
     deleteDraft: (draftId: string) => act(async () => {
-      await admin("admin_delete_draft", { p_draft: draftId });
+      await call("delete_draft", { p_draft: draftId });
       if (viewedRef.current === draftId) setViewedId(null);
-    }),
-    setRound: (draftId: string, round: number) => act(() => admin("admin_set_round", { p_draft: draftId, p_round: round })),
-    setAutoAdvance: (draftId: string, on: boolean) => act(() => admin("admin_set_auto_advance", { p_draft: draftId, p_on: on })),
-    adminSetPick: (draftId: string, player: string, round: number, text: string) => {
+    }, true),
+    setRound: (draftId: string, round: number) => act(() => call("set_round", { p_draft: draftId, p_round: round }), true),
+    setAutoAdvance: (draftId: string, on: boolean) => act(() => call("set_auto_advance", { p_draft: draftId, p_on: on }), true),
+    setPick: (draftId: string, player: string, round: number, text: string) => {
       optimisticPick(draftId, player, round, text);
-      return act(() => admin("admin_set_pick", { p_draft: draftId, p_player: player, p_round: round, p_text: text }));
+      return act(() => call("set_pick", { p_draft: draftId, p_player: player, p_round: round, p_text: text }), true);
     },
   };
 }
