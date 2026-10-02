@@ -29,13 +29,15 @@ export interface DraftConfig {
 export type Picks = RosterEntry[];
 
 export interface PickNote {
-  done: boolean;
+  /** The player taken. A pick counts as made once this has text. */
   note?: string;
 }
 
 /** Live-board progress. Keyed by `${playerName}|${roundIndex}`. */
 export interface Progress {
   currentRound: number;
+  /** Move to the next round once every player has entered a pick. Treated as on when missing. */
+  autoAdvance?: boolean;
   picks: Record<string, PickNote>;
 }
 

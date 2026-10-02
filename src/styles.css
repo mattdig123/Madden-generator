@@ -302,17 +302,17 @@ tr.current td.round::before, tr.current td.round::after { opacity: 0.6; }
 }
 td .pos { animation: rise 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; animation-delay: calc(var(--i, 0) * 16ms); }
 .pos { transition: opacity 0.25s; }
-.chip-btn.done { animation: tick 0.35s ease-out; }
-.chip-btn { transition: filter 0.15s; }
+.note.picked { animation: tick 0.35s ease-out; }
 @media (prefers-reduced-motion: reduce) {
-  td .pos, .chip-btn.done, tr.current td { animation: none; }
+  td .pos, .note.picked, tr.current td { animation: none; }
 }
 
 /* live board */
+label.check { display: flex; align-items: center; gap: 8px; margin: 12px 0 0; font-weight: 500; font-size: 14px; cursor: pointer; }
+label.check input { width: 16px; height: 16px; accent-color: #22c55e; }
 .live-cell { display: flex; flex-direction: column; gap: 4px; min-width: 112px; }
-.chip-btn { padding: 0; border: 0; background: none; border-radius: 9px; }
-.chip-btn:hover:not(:disabled) { filter: brightness(1.12); }
-.note { padding: 3px 8px; font-size: 12px; width: 100%; border-radius: 8px; }
+.note { padding: 3px 8px; font-size: 12px; width: 100%; border-radius: 8px; transition: background 0.2s, border-color 0.2s; }
+.note.picked { font-weight: 600; border-color: color-mix(in srgb, var(--success) 55%, var(--border)); background: color-mix(in srgb, var(--success) 12%, var(--bg)); }
 .clock { font: 700 24px/1 "Barlow Condensed", Inter, sans-serif; letter-spacing: 0.04em; text-transform: uppercase; padding: 0 6px; }
 .remaining-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; padding: 8px 0; border-top: 1px solid var(--border); }
 .remaining-row strong { min-width: 90px; }

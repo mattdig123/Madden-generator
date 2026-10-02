@@ -2,9 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { generateDraft, validateConfig } from "../core/generate";
 import { uid } from "../core/id";
 import { parseNames } from "../core/names";
-import { emptyProgress } from "../core/progress";
+import { applyPick, emptyProgress } from "../core/progress";
 import { newSeed } from "../core/rng";
-import type { DraftConfig, PickNote, Progress, SavedDraft } from "../core/types";
+import { totalRounds } from "../core/rules";
+import type { DraftConfig, Progress, SavedDraft } from "../core/types";
 import { defaultSetup, loadStore, sanitizeDraft, saveStore, type Setup, type Store, type Working } from "./storage";
 
 const toSaved = ({ inHistory: _ignored, ...draft }: Working): SavedDraft => draft;
@@ -93,9 +94,13 @@ export function useDrafts() {
     updateWorking(w => ({ ...w, progress: fn(w.progress) }));
   }, [updateWorking]);
 
-  const setPick = useCallback((key: string, note: PickNote) => {
-    setProgress(p => ({ ...p, picks: { ...p.picks, [key]: note } }));
-  }, [setProgress]);
+  /** Records the player taken and auto-advances when that completes the round on the clock. */
+  const setPick = useCallback((name: string, round: number, note: string) => {
+    updateWorking(w => ({
+      ...w,
+      progress: applyPick(w.progress, w.config.names, totalRounds(w.config.roster), name, round, note),
+    }));
+  }, [updateWorking]);
 
   const saveToHistory = useCallback(() => {
     updateWorking(w => ({ ...w, inHistory: true }));

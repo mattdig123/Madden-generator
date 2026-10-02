@@ -41,6 +41,7 @@ function sanitizeProgress(p: Partial<Progress> | undefined): Progress {
   if (!p || typeof p !== "object") return base;
   return {
     currentRound: Number.isInteger(p.currentRound) && p.currentRound! >= 1 ? p.currentRound! : 1,
+    autoAdvance: p.autoAdvance === false ? false : undefined,
     picks: p.picks && typeof p.picks === "object" ? p.picks : {},
   };
 }
