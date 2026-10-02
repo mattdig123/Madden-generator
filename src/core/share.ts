@@ -1,4 +1,5 @@
 import { DEFAULT_ROSTER, DEFAULT_RULES } from "./roster";
+import { TEAM_BY_ID } from "./teams";
 import { GROUPS, type DraftConfig, type Group, type RosterEntry, type Rule } from "./types";
 
 const VERSION = 1;
@@ -24,6 +25,8 @@ export function encodeConfig(config: DraftConfig): string {
   const payload: Record<string, unknown> = { v: VERSION, s: config.seed, n: config.names };
   const rerolls = Object.fromEntries(Object.entries(config.rerolls).filter(([, c]) => c > 0));
   if (Object.keys(rerolls).length > 0) payload.x = rerolls;
+  // Team ids in the same order as the names, "" where a player has none.
+  if (config.teams && config.names.some(n => config.teams![n])) payload.t = config.names.map(n => config.teams![n] ?? "");
   if (!sameAsDefault(config.rules, DEFAULT_RULES)) payload.u = config.rules;
   if (!sameAsDefault(config.roster, DEFAULT_ROSTER)) payload.r = config.roster;
   return PREFIX + toBase64Url(JSON.stringify(payload));
@@ -67,7 +70,11 @@ export function decodeConfig(hash: string): DraftConfig | null {
     if (p.x && typeof p.x === "object") {
       for (const [k, v] of Object.entries(p.x)) if (isInt(v) && v > 0) rerolls[k] = v;
     }
-    return { seed: p.s, names: p.n, rerolls, rules, roster };
+    const config: DraftConfig = { seed: p.s, names: p.n, rerolls, rules, roster };
+    if (Array.isArray(p.t) && p.t.length === p.n.length && p.t.every((id: unknown) => id === "" || (typeof id === "string" && id in TEAM_BY_ID))) {
+      config.teams = Object.fromEntries(p.n.map((n: string, i: number) => [n, p.t[i]]).filter(([, id]: [string, string]) => id));
+    }
+    return config;
   } catch {
     return null;
   }

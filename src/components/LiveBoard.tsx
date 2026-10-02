@@ -4,6 +4,7 @@ import { getPick, isPicked, remainingSlots } from "../core/progress";
 import type { Drafts } from "../state/useDrafts";
 import { DraftGrid, Legend, PosChip } from "./DraftGrid";
 import { PickInput } from "./PickInput";
+import { TeamLogo } from "./TeamLogo";
 
 interface Props {
   drafts: Drafts;
@@ -96,7 +97,7 @@ export function LiveBoard({ drafts, players, onNeedSetup }: Props) {
           const left = remainingSlots(p.picks, p.name, progress, config.roster);
           return (
             <div className="remaining-row" key={p.name}>
-              <strong>{p.name}</strong>
+              <strong className="who"><TeamLogo team={p.team} size={22} />{p.name}</strong>
               {left.length === 0
                 ? <span className="hint">All filled</span>
                 : left.map(r => <span key={r.label} className="tally">{r.label} × {r.left}</span>)}

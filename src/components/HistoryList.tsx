@@ -1,5 +1,7 @@
 import { useRef, useState } from "react";
+import { TEAM_BY_ID } from "../core/teams";
 import type { Drafts } from "../state/useDrafts";
+import { TeamLogo } from "./TeamLogo";
 
 interface Props {
   drafts: Drafts;
@@ -52,8 +54,14 @@ export function HistoryList({ drafts, onOpen }: Props) {
           <div>
             <strong>{d.title}</strong>
             {working?.id === d.id && <span className="badge">Open</span>}
-            <div className="hint">
-              {new Date(d.createdAt).toLocaleString()} · {d.config.names.join(", ")}
+            <div className="hint">{new Date(d.createdAt).toLocaleString()}</div>
+            <div className="history-players">
+              {d.config.names.map(n => (
+                <span key={n} className="history-player">
+                  <TeamLogo team={TEAM_BY_ID[d.config.teams?.[n] ?? ""]} size={18} />
+                  {n}
+                </span>
+              ))}
             </div>
           </div>
           <div className="row first">

@@ -1,13 +1,21 @@
 import { DEFAULT_ROSTER, DEFAULT_RULES } from "../core/roster";
+import { uid } from "../core/id";
 import { emptyProgress } from "../core/progress";
+import { TEAM_BY_ID } from "../core/teams";
 import type { DraftConfig, Progress, RosterEntry, Rule, SavedDraft } from "../core/types";
 
 const KEY = "madden-draft-generator";
 const VERSION = 1;
 
+export interface SetupPlayer {
+  id: string;
+  name: string;
+  /** Team id, or "" until chosen. */
+  team: string;
+}
+
 export interface Setup {
-  namesText: string;
-  count: number;
+  players: SetupPlayer[];
   /** Blank means pick a random seed on Generate. */
   seed: string;
   rules: Rule[];
@@ -25,9 +33,10 @@ export interface Store {
   saved: SavedDraft[];
 }
 
+export const blankPlayer = (): SetupPlayer => ({ id: uid(), name: "", team: "" });
+
 export const defaultSetup = (): Setup => ({
-  namesText: "",
-  count: 4,
+  players: Array.from({ length: 4 }, blankPlayer),
   seed: "",
   rules: DEFAULT_RULES.map(r => ({ ...r })),
   roster: DEFAULT_ROSTER.map(r => ({ ...r })),
@@ -46,6 +55,28 @@ function sanitizeProgress(p: Partial<Progress> | undefined): Progress {
   };
 }
 
+function sanitizeTeams(teams: unknown): Record<string, string> | undefined {
+  if (!teams || typeof teams !== "object") return undefined;
+  const out = Object.entries(teams).filter(([, id]) => typeof id === "string" && id in TEAM_BY_ID) as [string, string][];
+  return out.length > 0 ? Object.fromEntries(out) : undefined;
+}
+
+function sanitizePlayers(s: { players?: unknown; namesText?: unknown }): SetupPlayer[] {
+  if (Array.isArray(s.players) && s.players.length >= 2) {
+    return s.players.slice(0, 32).map(p => ({
+      id: typeof p?.id === "string" ? p.id : uid(),
+      name: typeof p?.name === "string" ? p.name : "",
+      team: typeof p?.team === "string" && p.team in TEAM_BY_ID ? p.team : "",
+    }));
+  }
+  // Setups saved before teams existed kept names as one block of text.
+  if (typeof s.namesText === "string") {
+    const names = s.namesText.split(/[\n,]+/).map(n => n.trim()).filter(Boolean).slice(0, 32);
+    if (names.length >= 2) return names.map(name => ({ id: uid(), name, team: "" }));
+  }
+  return defaultSetup().players;
+}
+
 export function sanitizeDraft(d: Partial<SavedDraft>): SavedDraft | null {
   const c = d.config as Partial<DraftConfig> | undefined;
   if (!d.id || !c || !Array.isArray(c.names) || !Array.isArray(c.roster) || !Array.isArray(c.rules) || typeof c.seed !== "string") {
@@ -55,7 +86,10 @@ export function sanitizeDraft(d: Partial<SavedDraft>): SavedDraft | null {
     id: String(d.id),
     title: typeof d.title === "string" ? d.title : "Untitled draft",
     createdAt: typeof d.createdAt === "number" ? d.createdAt : Date.now(),
-    config: { seed: c.seed, names: c.names, roster: c.roster, rules: c.rules, rerolls: c.rerolls ?? {} },
+    config: {
+      seed: c.seed, names: c.names, roster: c.roster, rules: c.rules, rerolls: c.rerolls ?? {},
+      teams: sanitizeTeams(c.teams),
+    },
     progress: sanitizeProgress(d.progress),
   };
 }
@@ -74,8 +108,7 @@ export function loadStore(): LoadResult {
     const def = defaultSetup();
     const s = data.setup ?? {};
     const setup: Setup = {
-      namesText: typeof s.namesText === "string" ? s.namesText : def.namesText,
-      count: Number.isInteger(s.count) ? s.count : def.count,
+      players: sanitizePlayers(s),
       seed: typeof s.seed === "string" ? s.seed : "",
       rules: Array.isArray(s.rules) ? s.rules : def.rules,
       roster: Array.isArray(s.roster) ? s.roster : def.roster,

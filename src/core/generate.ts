@@ -1,4 +1,5 @@
 import { makeRng, randInt, shuffle, type Rng } from "./rng";
+import { TEAM_BY_ID, teamLabel, type Team } from "./teams";
 import { expandSlots } from "./roster";
 import {
   canAssign,
@@ -14,11 +15,16 @@ import type { DraftConfig, Picks, RosterEntry, Rule } from "./types";
 
 export interface PlayerDraft {
   name: string;
+  team?: Team;
   picks: Picks;
 }
 
-/** Returns an error message for the first problem in the config, or null. */
-export function validateConfig(config: DraftConfig): string | null {
+/**
+ * Returns an error message for the first problem in the config, or null.
+ * With `requireTeams`, every player must have one. Without it, drafts that predate teams are
+ * still accepted, but any teams present must be real and unique.
+ */
+export function validateConfig(config: DraftConfig, opts: { requireTeams?: boolean } = {}): string | null {
   const { names, roster, rules } = config;
   if (names.length < 2) return "Need at least 2 players.";
   if (names.length > MAX_PLAYERS) return `Max ${MAX_PLAYERS} players.`;
@@ -28,7 +34,24 @@ export function validateConfig(config: DraftConfig): string | null {
     if (seen.has(key)) return `Duplicate name: "${n}".`;
     seen.add(key);
   }
-  return validateRoster(roster) ?? checkRules(rules, roster);
+  return checkTeams(config, !!opts.requireTeams) ?? validateRoster(roster) ?? checkRules(rules, roster);
+}
+
+function checkTeams(config: DraftConfig, require: boolean): string | null {
+  const taken = new Map<string, string>();
+  for (const name of config.names) {
+    const id = config.teams?.[name];
+    if (!id) {
+      if (require) return `Pick a team for ${name}.`;
+      continue;
+    }
+    const team = TEAM_BY_ID[id];
+    if (!team) return `Unknown team for ${name}.`;
+    const other = taken.get(id);
+    if (other) return `${teamLabel(team)} is picked by both ${other} and ${name}. Each team can only be used once.`;
+    taken.set(id, name);
+  }
+  return null;
 }
 
 /**
@@ -79,6 +102,7 @@ export function generateDraft(config: DraftConfig): PlayerDraft[] {
     if (!validatePicks(picks, config.roster, config.rules)) {
       throw new Error(`Roll for ${name} did not match the roster and rules.`);
     }
-    return { name, picks };
+    const teamId = config.teams?.[name];
+    return { name, team: teamId ? TEAM_BY_ID[teamId] : undefined, picks };
   });
 }

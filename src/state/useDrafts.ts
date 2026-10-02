@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { generateDraft, validateConfig } from "../core/generate";
 import { uid } from "../core/id";
-import { parseNames } from "../core/names";
 import { applyPick, emptyProgress } from "../core/progress";
 import { newSeed } from "../core/rng";
 import { totalRounds } from "../core/rules";
@@ -49,16 +48,17 @@ export function useDrafts() {
   /** Returns an error message, or null on success. */
   const generate = useCallback((): string | null => {
     const { setup } = store;
-    const parsed = parseNames(setup.namesText, setup.count);
-    if (parsed.error || !parsed.names) return parsed.error ?? "Could not read player names.";
+    const names = setup.players.map((p, i) => p.name.trim() || `Player ${i + 1}`);
+    const teams = Object.fromEntries(setup.players.map((p, i) => [names[i], p.team]).filter(([, team]) => team));
     const config: DraftConfig = {
       seed: setup.seed.trim() || newSeed(),
-      names: parsed.names,
+      names,
+      teams,
       rerolls: {},
       rules: setup.rules,
       roster: setup.roster,
     };
-    const error = validateConfig(config);
+    const error = validateConfig(config, { requireTeams: true });
     if (error) return error;
     try { generateDraft(config); } catch (e) { return (e as Error).message; }
     setStore(s => withWorking(s, startDraft(config, fmtTitle(config.names))));

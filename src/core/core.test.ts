@@ -192,3 +192,56 @@ describe("auto-advance", () => {
     expect(stay.currentRound).toBe(1);
   });
 });
+
+describe("teams", () => {
+  it("has 32 teams with unique ids and abbreviations", async () => {
+    const { TEAMS, DIVISIONS } = await import("./teams");
+    expect(TEAMS).toHaveLength(32);
+    expect(new Set(TEAMS.map(t => t.id)).size).toBe(32);
+    expect(new Set(TEAMS.map(t => t.abbr)).size).toBe(32);
+    expect(DIVISIONS).toHaveLength(8);
+    expect(DIVISIONS.every(d => d.teams.length === 4)).toBe(true);
+  });
+
+  const withTeams = (teams: Record<string, string>) => base({ teams });
+
+  it("requires a team for every player when asked", () => {
+    const partial = withTeams({ Matt: "kc", Dave: "buf" });
+    expect(validateConfig(partial, { requireTeams: true })).toMatch(/Pick a team for Chris/);
+    const all = withTeams({ Matt: "kc", Dave: "buf", Chris: "sf", Sam: "dal" });
+    expect(validateConfig(all, { requireTeams: true })).toBeNull();
+  });
+
+  it("rejects a team used twice and unknown teams", () => {
+    const dup = withTeams({ Matt: "kc", Dave: "kc", Chris: "sf", Sam: "dal" });
+    expect(validateConfig(dup, { requireTeams: true })).toMatch(/Kansas City Chiefs.*once/);
+    expect(validateConfig(dup)).not.toBeNull();
+    expect(validateConfig(withTeams({ Matt: "zzz" }))).toMatch(/Unknown team/);
+  });
+
+  it("still accepts drafts saved before teams existed", () => {
+    expect(validateConfig(base())).toBeNull();
+    expect(generateDraft(base())[0].team).toBeUndefined();
+  });
+
+  it("attaches the team to each player draft", () => {
+    const players = generateDraft(withTeams({ Matt: "kc", Dave: "buf", Chris: "sf", Sam: "dal" }));
+    expect(players.map(p => p.team?.abbr)).toEqual(["KC", "BUF", "SF", "DAL"]);
+  });
+
+  it("round-trips teams through a share link, and decodes links without them", () => {
+    const teams = { Matt: "kc", Dave: "buf", Chris: "sf", Sam: "wsh" };
+    expect(decodeConfig(encodeConfig(withTeams(teams)))?.teams).toEqual(teams);
+    expect(decodeConfig(encodeConfig(base()))?.teams).toBeUndefined();
+  });
+
+  it("drops team data from a link when an id is invalid", () => {
+    const hash = encodeConfig(withTeams({ Matt: "kc", Dave: "buf", Chris: "sf", Sam: "dal" }));
+    const json = JSON.parse(atob(hash.slice(4).replace(/-/g, "+").replace(/_/g, "/")));
+    json.t[0] = "nope";
+    const bad = "#/d/" + btoa(JSON.stringify(json)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    const decoded = decodeConfig(bad);
+    expect(decoded).not.toBeNull();
+    expect(decoded?.teams).toBeUndefined();
+  });
+});

@@ -1,7 +1,12 @@
 import { useState } from "react";
+import { MAX_PLAYERS } from "../core/rules";
+import { blankPlayer, type SetupPlayer } from "../state/storage";
 import type { Drafts } from "../state/useDrafts";
+import { PlayerRow } from "./PlayerRow";
 import { RosterEditor } from "./RosterEditor";
 import { RulesEditor } from "./RulesEditor";
+
+const MIN_PLAYERS = 2;
 
 interface Props {
   drafts: Drafts;
@@ -11,6 +16,9 @@ interface Props {
 export function SetupPanel({ drafts, onGenerated }: Props) {
   const { setup } = drafts.store;
   const [error, setError] = useState<string | null>(null);
+
+  const updatePlayer = (i: number, patch: Partial<SetupPlayer>) =>
+    drafts.setSetup({ players: setup.players.map((p, j) => (j === i ? { ...p, ...patch } : p)) });
 
   const generate = () => {
     const err = drafts.generate();
@@ -22,26 +30,29 @@ export function SetupPanel({ drafts, onGenerated }: Props) {
     <>
       <section className="panel">
         <h2><span className="step">1</span>Players</h2>
-        <label htmlFor="names" className="sr-only">Players (one per line, or comma-separated)</label>
-        <textarea
-          id="names"
-          value={setup.namesText}
-          placeholder={"Matt\nDave\nChris\nSam"}
-          onChange={e => drafts.setSetup({ namesText: e.target.value })}
-        />
-        <div className="hint">One name per line, or comma-separated. Leave blank and enter a number to use Player 1, Player 2, etc.</div>
-        <div className="row">
-          <input
-            type="number" min={2} max={32} value={setup.count} aria-label="Number of players" className="narrow"
-            onChange={e => drafts.setSetup({ count: Number(e.target.value) })}
+        <p className="hint players-hint">Add each person and the team they are drafting for. Each team can only be used once.</p>
+        {setup.players.map((player, i) => (
+          <PlayerRow
+            key={player.id}
+            index={i}
+            player={player}
+            taken={new Set(setup.players.map(p => p.team).filter(Boolean))}
+            canRemove={setup.players.length > MIN_PLAYERS}
+            onChange={patch => updatePlayer(i, patch)}
+            onRemove={() => drafts.setSetup({ players: setup.players.filter((_, j) => j !== i) })}
           />
+        ))}
+        <div className="row">
+          <button onClick={() => drafts.setSetup({ players: [...setup.players, blankPlayer()] })} disabled={setup.players.length >= MAX_PLAYERS}>
+            Add player
+          </button>
           <input
             value={setup.seed} placeholder="Seed (optional)" aria-label="Seed"
             onChange={e => drafts.setSetup({ seed: e.target.value })}
           />
           <button className="primary" onClick={generate}>Generate</button>
         </div>
-        <div className="hint">The same seed, names, rules and roster always give the same draft. Blank picks a random seed.</div>
+        <div className="hint">Leave a name blank to use Player 1, Player 2, etc. The same seed, players, rules and roster always give the same draft. A blank seed picks a random one.</div>
         {error && <div className="msg error" role="alert">{error}</div>}
       </section>
 

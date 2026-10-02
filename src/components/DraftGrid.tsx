@@ -1,6 +1,7 @@
 import type { CSSProperties, ReactNode } from "react";
 import type { PlayerDraft } from "../core/generate";
 import { GROUP_NAMES } from "../core/roster";
+import { TeamLogo } from "./TeamLogo";
 import { GROUPS, type RosterEntry } from "../core/types";
 
 interface Props {
@@ -41,13 +42,12 @@ export function DraftGrid({ players, highlightRound, onReroll, version, renderCe
             <th className="round">Rd</th>
             {players.map(p => (
               <th key={p.name}>
-                {p.name}
-                {onReroll && (
-                  <>
-                    <br />
-                    <button className="small" onClick={() => onReroll(p.name)}>Re-roll</button>
-                  </>
-                )}
+                <div className="th-player">
+                  <TeamLogo team={p.team} size={40} />
+                  <span className="th-name">{p.name}</span>
+                  {p.team && <span className="th-team">{p.team.name}</span>}
+                  {onReroll && <button className="small" onClick={() => onReroll(p.name)}>Re-roll</button>}
+                </div>
               </th>
             ))}
           </tr>

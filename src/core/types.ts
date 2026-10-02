@@ -19,6 +19,8 @@ export interface Rule {
 export interface DraftConfig {
   seed: string;
   names: string[];
+  /** Team id per player name. Missing in drafts saved before teams existed. */
+  teams?: Record<string, string>;
   /** Per-player re-roll counter, keyed by name. Missing means 0. */
   rerolls: Record<string, number>;
   rules: Rule[];

@@ -216,6 +216,31 @@ details[open] > summary { margin-bottom: 12px; }
 .roster-row input[type="number"] { width: 70px; }
 .roster-row .pos { margin-left: auto; }
 
+/* players + teams */
+.players-hint { margin: -4px 0 12px; }
+.player-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.player-num {
+  flex: none; width: 24px; text-align: center;
+  font: 700 18px/1 "Barlow Condensed", Inter, sans-serif; color: var(--muted);
+}
+.player-name { flex: 1 1 160px; min-width: 130px; }
+.team-pick { display: flex; align-items: center; gap: 8px; flex: 1 1 230px; }
+.team-pick select { flex: 1; min-width: 0; }
+.team-slot { flex: none; width: 34px; height: 34px; display: grid; place-items: center; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--border); }
+.player-row button.small { margin-top: 0; }
+.team-logo { object-fit: contain; display: block; }
+.team-badge {
+  display: inline-grid; place-items: center; border-radius: 50%; flex: none;
+  font-weight: 800; letter-spacing: -0.02em; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25);
+}
+.th-player { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.th-name { font-weight: 700; }
+.th-team { font-size: 11px; font-weight: 500; color: var(--muted); letter-spacing: 0.02em; }
+.th-player button.small { margin-top: 2px; }
+.who { display: inline-flex; align-items: center; gap: 8px; }
+.history-players { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 6px; font-size: 13px; }
+.history-player { display: inline-flex; align-items: center; gap: 5px; }
+
 /* legend */
 .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 0 0 12px; font-size: 12.5px; color: var(--muted); }
 .legend-item { display: inline-flex; align-items: center; gap: 6px; }
