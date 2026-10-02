@@ -54,8 +54,18 @@ export function App() {
 
   return (
     <main>
-      <h1>Madden Draft Generator</h1>
-      <p className="sub">Every player drafts the same positions, each in their own random order.</p>
+      <header className="hero">
+        <div className="logo" aria-hidden="true">
+          <svg viewBox="0 0 32 32" width="28" height="28" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+            <ellipse cx="16" cy="16" rx="13" ry="8" transform="rotate(-35 16 16)" />
+            <path d="M10.5 21.5l11-11M14 18l2.2-2.2M16.8 20.6l2.2-2.2M11.4 15.4l2.2-2.2" />
+          </svg>
+        </div>
+        <div>
+          <h1>Draft Generator</h1>
+          <p className="sub">Every player drafts the same positions, each in their own random order.</p>
+        </div>
+      </header>
 
       {!drafts.storageOk && (
         <div className="banner error">

@@ -1,4 +1,4 @@
-import type { Rule, RosterEntry } from "./types";
+import type { Group, Rule, RosterEntry } from "./types";
 
 export const DEFAULT_ROSTER: RosterEntry[] = [
   { label: "QB", count: 1, group: "qb" },
@@ -25,3 +25,7 @@ export const DEFAULT_RULES: Rule[] = [{ id: "qb-by-10", label: "QB", maxRound: 1
 export function expandSlots(roster: RosterEntry[]): RosterEntry[] {
   return roster.flatMap(r => Array.from({ length: r.count }, () => r));
 }
+
+export const GROUP_NAMES: Record<Group, string> = {
+  qb: "QB", skill: "Skill", ol: "Offensive line", front: "Front 7", db: "Secondary", k: "Kicker", flex: "Flex (Any)",
+};

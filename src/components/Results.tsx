@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { PlayerDraft } from "../core/generate";
 import { asText } from "../core/text";
 import type { Drafts } from "../state/useDrafts";
-import { DraftGrid } from "./DraftGrid";
+import { DraftGrid, Legend } from "./DraftGrid";
 import { ShareButton } from "./ShareButton";
 
 interface Props {
@@ -66,6 +66,7 @@ export function Results({ drafts, players, onNeedSetup }: Props) {
         <button onClick={() => window.print()}>Print</button>
         {msg && <span className={`msg ${msg.kind} inline-msg`}>{msg.text}</span>}
       </div>
+      <Legend />
       <DraftGrid players={players} onReroll={drafts.rerollPlayer} highlightRound={working.progress.currentRound} />
     </>
   );

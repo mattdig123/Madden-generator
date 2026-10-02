@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import type { PlayerDraft } from "../core/generate";
-import type { RosterEntry } from "../core/types";
+import { GROUP_NAMES } from "../core/roster";
+import { GROUPS, type RosterEntry } from "../core/types";
 
 interface Props {
   players: PlayerDraft[];
@@ -13,6 +14,19 @@ interface Props {
 
 export function PosChip({ entry, dim }: { entry: RosterEntry; dim?: boolean }) {
   return <span className={`pos g-${entry.group}${dim ? " dim" : ""}`}>{entry.label}</span>;
+}
+
+export function Legend() {
+  return (
+    <div className="legend" aria-label="Position colors">
+      {GROUPS.map(g => (
+        <span key={g} className="legend-item">
+          <span className={`swatch g-${g}`} />
+          {GROUP_NAMES[g]}
+        </span>
+      ))}
+    </div>
+  );
 }
 
 export function DraftGrid({ players, highlightRound, onReroll, renderCell }: Props) {

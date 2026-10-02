@@ -1,7 +1,7 @@
 import type { PlayerDraft } from "../core/generate";
 import { getPick, pickKey, remainingSlots } from "../core/progress";
 import type { Drafts } from "../state/useDrafts";
-import { DraftGrid, PosChip } from "./DraftGrid";
+import { DraftGrid, Legend, PosChip } from "./DraftGrid";
 
 interface Props {
   drafts: Drafts;
@@ -39,6 +39,7 @@ export function LiveBoard({ drafts, players, onNeedSetup }: Props) {
         <div className="hint">Tap a position to mark it picked. Add the player you took in the box underneath.</div>
       </section>
 
+      <Legend />
       <DraftGrid
         players={players}
         highlightRound={progress.currentRound}

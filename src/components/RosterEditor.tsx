@@ -1,4 +1,4 @@
-import { DEFAULT_ROSTER } from "../core/roster";
+import { DEFAULT_ROSTER, GROUP_NAMES } from "../core/roster";
 import { totalRounds, validateRoster } from "../core/rules";
 import { GROUPS, type Group, type RosterEntry } from "../core/types";
 
@@ -6,10 +6,6 @@ interface Props {
   roster: RosterEntry[];
   onChange: (roster: RosterEntry[]) => void;
 }
-
-const GROUP_NAMES: Record<Group, string> = {
-  qb: "QB", skill: "Skill", ol: "Offensive line", front: "Front 7", db: "Secondary", k: "Kicker", flex: "Flex",
-};
 
 export function RosterEditor({ roster, onChange }: Props) {
   const error = validateRoster(roster);
